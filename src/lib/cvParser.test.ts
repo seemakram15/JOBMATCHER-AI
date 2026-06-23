@@ -36,4 +36,28 @@ describe('CV parser', () => {
 
     expect(parsed.warnings[0]).toContain('short')
   })
+
+  it('reports whole years and does not double count overlapping roles', () => {
+    const parsed = parseCvText(
+      `
+      Waseem Akram
+      Frontend Engineer
+
+      Senior Frontend Engineer - Nimbus Labs
+      Jan 2020 - Present
+      Built React and TypeScript dashboards.
+
+      React Consultant - OrbitWorks
+      Jan 2021 - Dec 2021
+      Delivered Node.js and PostgreSQL integrations.
+
+      Bachelor of Computer Science
+      `,
+      'overlap-cv.pdf',
+    )
+
+    expect(Number.isInteger(parsed.totalYearsExperience)).toBe(true)
+    expect(parsed.totalYearsExperience).toBeGreaterThanOrEqual(6)
+    expect(parsed.totalYearsExperience).toBeLessThanOrEqual(7)
+  })
 })

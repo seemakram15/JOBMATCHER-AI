@@ -90,10 +90,12 @@ export function computeMatch(profile: UserProfile, cv: CvProfile, job: Job): Job
     .filter((required) => !matchedRequired.includes(required))
     .map((skill) => skill.skill)
 
+  const hasCoreRequiredSkill = requiredSkills.some((skill) => !isLowSignalSkill(skill.skill))
   const requiredWeight = requiredSkills.reduce((total, skill) => total + skill.weight, 0) || 1
   const matchedWeight = matchedRequired.reduce((total, skill) => total + skill.weight, 0)
   const optionalBonus = Math.min(matchedOptional.length * 1.5, 5)
-  const skillScore = clamp(Math.round((matchedWeight / requiredWeight) * 50 + optionalBonus), 0, 50)
+  const rawSkillScore = clamp(Math.round((matchedWeight / requiredWeight) * 50 + optionalBonus), 0, 50)
+  const skillScore = hasCoreRequiredSkill || !requiredSkills.length ? rawSkillScore : Math.min(rawSkillScore, 12)
 
   const experienceScore = Math.round(
     experienceFit(cv.totalYearsExperience, job.experienceMin, job.experienceMax) * 20,
@@ -133,6 +135,12 @@ export function computeMatch(profile: UserProfile, cv: CvProfile, job: Job): Job
   }
 }
 
+function isLowSignalSkill(skill: string) {
+  return ['communication', 'agile', 'leadership', 'product thinking', 'git', 'github', 'data analysis'].includes(
+    normaliseSkill(skill),
+  )
+}
+
 export function scoreJobs(profile: UserProfile, cv: CvProfile, jobs: Job[], savedJobIds: string[]): ScoredJob[] {
   return jobs.map((job) => ({
     job,
@@ -151,18 +159,18 @@ const postedAfter = (datePosted: JobFilters['datePosted']) => {
 }
 
 export function filterAndSortJobs(jobs: ScoredJob[], filters: JobFilters) {
-  const query = filters.search.trim().toLowerCase()
+  const queryTokens = tokenise(filters.search).map(normaliseSkill)
   const earliestPosted = postedAfter(filters.datePosted)
 
   return jobs
     .filter(({ job, match }) => {
-      const searchable = `${job.title} ${job.company} ${job.description} ${job.skillsRequired
+      const searchable = tokenise(`${job.title} ${job.company} ${job.description} ${job.skillsRequired
         .map((skill) => skill.skill)
-        .join(' ')}`.toLowerCase()
+        .join(' ')}`).map(normaliseSkill)
       const salary = job.salaryMax ?? job.salaryMin ?? 0
       return (
         match.totalScore >= filters.scoreMin &&
-        (!query || searchable.includes(query)) &&
+        (!queryTokens.length || queryTokens.every((token) => searchable.some((item) => item.includes(token)))) &&
         (!filters.workModes.length || filters.workModes.includes(job.workMode)) &&
         (!filters.jobTypes.length || filters.jobTypes.includes(job.jobType)) &&
         (!filters.levels.length || filters.levels.includes(job.level)) &&

@@ -20,6 +20,17 @@ export interface LiveJobSearchResult {
   }[]
 }
 
+interface SearchProfile {
+  sourceQuery: string
+  rawQuery: string
+  roleTerms: string[]
+  skillTerms: string[]
+  coreSkillTerms: string[]
+  secondarySkillTerms: string[]
+  broadSkillTerms: string[]
+  experienceYears?: number
+}
+
 const skillHints = [
   'React',
   'TypeScript',
@@ -54,11 +65,11 @@ const skillHints = [
 ]
 
 export async function fetchLiveJobs(input: LiveJobSearchInput, env: Record<string, string | undefined> = process.env) {
-  const query = input.query.trim() || input.skills?.slice(0, 4).join(' ') || 'software engineer'
+  const search = buildSearchProfile(input)
   const sources = await Promise.allSettled([
-    fetchRemotiveJobs(query),
-    fetchRemoteOkJobs(query),
-    fetchSerpApiJobs(query, input.location || 'Remote', env.SERPAPI_KEY),
+    fetchRemotiveJobs(search.sourceQuery),
+    fetchRemoteOkJobs(search.sourceQuery),
+    fetchSerpApiJobs(search.sourceQuery, input.location || 'Remote', env.SERPAPI_KEY),
   ])
 
   const result: LiveJobSearchResult = {
@@ -76,14 +87,52 @@ export async function fetchLiveJobs(input: LiveJobSearchInput, env: Record<strin
     }
   }
 
-  const deduped = dedupeJobs(result.jobs)
-  result.jobs = deduped
-    .filter((job) => matchesQuery(job, query, input.skills || []))
-    .sort((a, b) => +new Date(b.postedAt) - +new Date(a.postedAt))
+  result.jobs = filterRelevantJobsForSearch(result.jobs, input)
     .slice(0, input.limit || 60)
     .map(sanitiseJob)
 
   return result
+}
+
+export function filterRelevantJobsForSearch(jobs: Job[], input: LiveJobSearchInput) {
+  const search = buildSearchProfile(input)
+  return dedupeJobs(jobs)
+    .map((job) => ({ job, relevance: scoreJobRelevance(job, search) }))
+    .filter(({ relevance }) => relevance.accept)
+    .sort((a, b) => b.relevance.score - a.relevance.score || +new Date(b.job.postedAt) - +new Date(a.job.postedAt))
+    .map(({ job }) => job)
+}
+
+export function explainLiveJobRelevance(job: Job, input: LiveJobSearchInput) {
+  const search = buildSearchProfile(input)
+  return {
+    search,
+    relevance: scoreJobRelevance(job, search),
+  }
+}
+
+function buildSearchProfile(input: LiveJobSearchInput): SearchProfile {
+  const skills = dedupeTerms(input.skills || [])
+  const rawQuery = cleanSearchTerm(input.query)
+  const roleTerms = extractRoleTerms(input.query, skills)
+  const coreSkillTerms = sortSkillsForSearch(skills.filter((skill) => isCoreSearchSkill(skill, rawQuery)))
+  const broadSkillTerms = skills.filter((skill) => isBroadSearchSkill(skill, rawQuery))
+  const secondarySkillTerms = sortSkillsForSearch(
+    skills.filter((skill) => !coreSkillTerms.includes(skill) && !broadSkillTerms.includes(skill)),
+  )
+  const roleQuery = roleTerms.length ? roleTerms.join(' ') : rawQuery || 'software engineer'
+  const strongestSkills = coreSkillTerms.length ? coreSkillTerms : secondarySkillTerms
+
+  return {
+    sourceQuery: [roleQuery, ...strongestSkills.slice(0, 3)].filter(Boolean).join(' '),
+    rawQuery,
+    roleTerms,
+    skillTerms: skills,
+    coreSkillTerms,
+    secondarySkillTerms,
+    broadSkillTerms,
+    experienceYears: input.experienceYears,
+  }
 }
 
 async function fetchRemotiveJobs(query: string): Promise<Job[]> {
@@ -254,17 +303,11 @@ async function fetchSerpApiJobs(query: string, location: string, apiKey?: string
 
 function inferSkills(text: string): SkillRequirement[] {
   const found = skillHints
-    .filter((skill) => matchesText(text, skill))
+    .filter((skill) => matchesSkillHint(text, skill))
     .slice(0, 10)
     .map((skill) => ({ skill, required: true, weight: 1 }))
 
-  return found.length ? found : [{ skill: 'Communication', required: true, weight: 0.5 }]
-}
-
-function matchesQuery(job: Job, query: string, skills: string[]) {
-  const haystack = `${job.title} ${job.company} ${job.description} ${job.skillsRequired.map((skill) => skill.skill).join(' ')}`
-  if (skills.some((skill) => matchesText(haystack, skill))) return true
-  return matchesText(haystack, query)
+  return found
 }
 
 function matchesText(text: string, query: string) {
@@ -276,6 +319,265 @@ function matchesText(text: string, query: string) {
 
   const haystack = text.toLowerCase()
   return !tokens.length || tokens.some((token) => haystack.includes(token))
+}
+
+function scoreJobRelevance(job: Job, search: SearchProfile) {
+  const title = normaliseForMatch(job.title)
+  const haystack = normaliseForMatch(
+    `${job.title} ${job.company} ${job.description} ${job.skillsRequired.map((skill) => skill.skill).join(' ')}`,
+  )
+  const declaredSkills = job.skillsRequired.map((skill) => skill.skill)
+  const matchedCoreSkills = search.coreSkillTerms.filter(
+    (skill) => phraseMatches(haystack, skill) || declaredSkills.some((declared) => skillsEquivalent(declared, skill)),
+  )
+  const matchedSecondarySkills = search.secondarySkillTerms.filter(
+    (skill) => phraseMatches(haystack, skill) || declaredSkills.some((declared) => skillsEquivalent(declared, skill)),
+  )
+  const matchedBroadSkills = search.broadSkillTerms.filter((skill) => phraseMatches(haystack, skill))
+  const roleMatches = search.roleTerms.filter((term) => phraseMatches(title, term) || phraseMatches(haystack, term))
+  const requiredCoreMatches = search.coreSkillTerms.length >= 3 ? 2 : search.coreSkillTerms.length ? 1 : 0
+  const hasEnoughSkills = search.coreSkillTerms.length
+    ? matchedCoreSkills.length >= requiredCoreMatches
+    : matchedSecondarySkills.length >= Math.min(2, search.secondarySkillTerms.length)
+  const hasRoleFit =
+    roleMatches.length > 0 ||
+    titleHasDesiredDomain(title, search) ||
+    (hasTechnicalTarget(search) && hasTechnicalRoleTitle(title) && matchedCoreSkills.length >= requiredCoreMatches)
+  const experienceFit = hasReasonableExperienceFit(job, search.experienceYears)
+  const conflictingDomain = hasConflictingDomain(title, search)
+  const disallowedTitle = hasDisallowedTitle(title, search)
+
+  const accept = hasEnoughSkills && hasRoleFit && experienceFit && !conflictingDomain && !disallowedTitle
+  const score =
+    matchedCoreSkills.length * 45 +
+    matchedSecondarySkills.length * 14 +
+    matchedBroadSkills.length * 2 +
+    roleMatches.length * 16 +
+    (titleHasDesiredDomain(title, search) ? 18 : 0) +
+    (experienceFit ? 10 : 0) +
+    Math.max(0, 8 - Math.floor((Date.now() - new Date(job.postedAt).getTime()) / 86_400_000))
+
+  return { accept, score }
+}
+
+function hasReasonableExperienceFit(job: Job, experienceYears?: number) {
+  if (experienceYears === undefined || experienceYears <= 0) return true
+  if (job.experienceMin !== undefined && job.experienceMin > experienceYears + 2) return false
+  if (job.level === 'lead' && experienceYears < 4) return false
+  if (job.level === 'senior' && experienceYears < 2) return false
+  return true
+}
+
+function hasConflictingDomain(title: string, search: SearchProfile) {
+  const desired = desiredDomains(search)
+  if (!desired.size) return false
+
+  const titleDomains = new Set(domainEntries.filter((entry) => entry.terms.some((term) => phraseMatches(title, term))).map((entry) => entry.name))
+  if (!titleDomains.size) return false
+
+  return [...titleDomains].some((domain) => !desired.has(domain)) && ![...desired].some((domain) => titleDomains.has(domain))
+}
+
+function titleHasDesiredDomain(title: string, search: SearchProfile) {
+  const desired = desiredDomains(search)
+  return [...desired].some((domain) => domainEntries.find((entry) => entry.name === domain)?.terms.some((term) => phraseMatches(title, term)))
+}
+
+const domainEntries = [
+  { name: 'frontend', terms: ['frontend', 'front end', 'react', 'next.js', 'ui engineer', 'web developer'] },
+  { name: 'backend', terms: ['backend', 'back end', 'node.js', 'api engineer', 'server', 'laravel', 'django'] },
+  { name: 'fullstack', terms: ['full stack', 'fullstack', 'mern', 'mean'] },
+  { name: 'mobile', terms: ['mobile', 'android', 'ios', 'react native', 'flutter'] },
+  { name: 'data', terms: ['data engineer', 'data scientist', 'machine learning', 'ml engineer', 'analytics engineer'] },
+  { name: 'devops', terms: ['devops', 'sre', 'site reliability', 'cloud engineer', 'platform engineer', 'infrastructure'] },
+  { name: 'qa', terms: ['qa engineer', 'test engineer', 'automation engineer', 'automated test', 'cypress', 'playwright'] },
+  { name: 'design', terms: ['designer', 'ui/ux', 'product designer', 'ux designer'] },
+]
+
+function desiredDomains(search: SearchProfile) {
+  const desired = new Set<string>()
+  const signal = normaliseForMatch([search.rawQuery, ...search.roleTerms, ...search.coreSkillTerms, ...search.secondarySkillTerms].join(' '))
+  for (const entry of domainEntries) {
+    if (entry.terms.some((term) => phraseMatches(signal, term))) desired.add(entry.name)
+  }
+  if (desired.has('fullstack')) {
+    desired.add('frontend')
+    desired.add('backend')
+  }
+  if (desired.has('frontend') && desired.has('backend')) desired.add('fullstack')
+  return desired
+}
+
+function hasDisallowedTitle(title: string, search: SearchProfile) {
+  const target = normaliseForMatch(search.rawQuery)
+  const allowedAdminSearch = /(assistant|administrator|admin|data entry|research|support|sales|marketing|recruit|customer)/.test(target)
+  if (allowedAdminSearch) return false
+
+  return /\b(data entry|assistant|administrator|admin assistant|research panel|survey|customer support|sales|marketing|recruiter|bookkeeper|virtual assistant)\b/i.test(
+    title,
+  )
+}
+
+function hasTechnicalTarget(search: SearchProfile) {
+  return (
+    /\b(engineer|developer|software|frontend|backend|full stack|fullstack|web|rails|react|javascript|typescript|node)\b/i.test(
+      search.rawQuery,
+    ) || desiredDomains(search).size > 0
+  )
+}
+
+function hasTechnicalRoleTitle(title: string) {
+  return /\b(engineer|developer|architect|programmer)\b/i.test(title)
+}
+
+function extractRoleTerms(query: string, skills: string[]) {
+  const skillSet = new Set(skills.map(normaliseForMatch))
+  return dedupeTerms(
+    cleanSearchTerm(query)
+      .split(/\s+/)
+      .filter((term) => term.length > 2)
+      .filter((term) => !genericRoleTerms.has(term))
+      .filter((term) => !skillSet.has(term)),
+  ).slice(0, 5)
+}
+
+const genericRoleTerms = new Set([
+  'job',
+  'jobs',
+  'role',
+  'remote',
+  'software',
+  'engineer',
+  'developer',
+  'senior',
+  'junior',
+  'lead',
+  'mid',
+  'level',
+])
+
+function dedupeTerms(terms: string[]) {
+  const seen = new Set<string>()
+  return terms
+    .map(cleanSearchTerm)
+    .filter((term) => term.length >= 2)
+    .filter((term) => {
+      const key = normaliseForMatch(term)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .slice(0, 30)
+}
+
+const broadSearchSkills = new Set([
+  'agile',
+  'communication',
+  'leadership',
+  'product thinking',
+  'git',
+  'github',
+  'data analysis',
+])
+
+const secondarySearchSkills = new Set([
+  'aws',
+  'ci/cd',
+  'docker',
+  'kubernetes',
+  'terraform',
+  'vercel',
+  'firebase',
+  'supabase',
+])
+
+const skillPriority = [
+  'react',
+  'typescript',
+  'javascript',
+  'next.js',
+  'node.js',
+  'ruby on rails',
+  'laravel',
+  'php',
+  'python',
+  'django',
+  'fastapi',
+  'graphql',
+  'rest apis',
+  'sql',
+  'postgresql',
+  'mysql',
+  'mongodb',
+  'redis',
+  'html',
+  'css',
+  'tailwind',
+]
+
+function isCoreSearchSkill(skill: string, rawQuery: string) {
+  const normalised = normaliseForMatch(skill)
+  if (normalised === 'data analysis' && !/\b(data|analytics|analyst|scientist|machine learning|ml)\b/i.test(rawQuery)) return false
+  return !broadSearchSkills.has(normalised) && !secondarySearchSkills.has(normalised)
+}
+
+function isBroadSearchSkill(skill: string, rawQuery: string) {
+  const normalised = normaliseForMatch(skill)
+  if (normalised === 'data analysis' && /\b(data|analytics|analyst|scientist|machine learning|ml)\b/i.test(rawQuery)) return false
+  return broadSearchSkills.has(normalised)
+}
+
+function sortSkillsForSearch(skills: string[]) {
+  return [...skills].sort((a, b) => skillSearchRank(a) - skillSearchRank(b) || a.localeCompare(b))
+}
+
+function skillSearchRank(skill: string) {
+  const index = skillPriority.indexOf(normaliseForMatch(skill))
+  return index === -1 ? 100 : index
+}
+
+function matchesSkillHint(text: string, skill: string) {
+  const haystack = normaliseForMatch(text)
+  if (skill === 'Data Analysis') return /\b(data analysis|data analytics|analytics|pandas|numpy)\b/i.test(haystack)
+  if (skill === 'REST APIs') return /\b(rest api|rest apis|restful|api design)\b/i.test(haystack)
+  if (skill === 'CI/CD') return /\b(ci\/cd|ci cd|github actions|gitlab ci)\b/i.test(haystack)
+  return phraseMatches(haystack, skill)
+}
+
+function cleanSearchTerm(value: string) {
+  return value.replace(/[^\w\s+#./-]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function phraseMatches(text: string, phrase: string) {
+  const normalisedPhrase = normaliseForMatch(phrase)
+  if (!normalisedPhrase) return false
+  const escaped = normalisedPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const boundaryStart = /^[a-z0-9]/.test(normalisedPhrase) ? '\\b' : ''
+  const boundaryEnd = /[a-z0-9]$/.test(normalisedPhrase) ? '\\b' : ''
+  return new RegExp(`${boundaryStart}${escaped}${boundaryEnd}`, 'i').test(text)
+}
+
+function normaliseForMatch(value: string) {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+function skillsEquivalent(left: string, right: string) {
+  return normaliseSkillForCompare(left) === normaliseSkillForCompare(right)
+}
+
+function normaliseSkillForCompare(skill: string) {
+  const normalised = normaliseForMatch(skill).replace(/[^a-z0-9+#. ]/g, '').replace(/\s+/g, ' ')
+  const aliases: Record<string, string> = {
+    'react.js': 'react',
+    reactjs: 'react',
+    'node.js': 'nodejs',
+    node: 'nodejs',
+    'rest api': 'rest apis',
+    restful: 'rest apis',
+    postgres: 'postgresql',
+    rails: 'ruby on rails',
+  }
+  return aliases[normalised] || normalised
 }
 
 function dedupeJobs(jobs: Job[]) {

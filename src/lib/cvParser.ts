@@ -50,6 +50,7 @@ const skillTaxonomy: SkillDefinition[] = [
   { canonical: 'Sass', type: 'tool', aliases: ['sass', 'scss'] },
   { canonical: 'GraphQL', type: 'technical', aliases: ['graphql', 'apollo'] },
   { canonical: 'REST APIs', type: 'technical', aliases: ['rest api', 'rest apis', 'restful', 'api design'] },
+  { canonical: 'SQL', type: 'technical', aliases: ['sql'] },
   { canonical: 'PostgreSQL', type: 'technical', aliases: ['postgresql', 'postgres'] },
   { canonical: 'MySQL', type: 'technical', aliases: ['mysql'] },
   { canonical: 'MongoDB', type: 'technical', aliases: ['mongodb', 'mongo'] },
@@ -69,6 +70,10 @@ const skillTaxonomy: SkillDefinition[] = [
   { canonical: 'Vitest', type: 'tool', aliases: ['vitest'] },
   { canonical: 'Playwright', type: 'tool', aliases: ['playwright'] },
   { canonical: 'Cypress', type: 'tool', aliases: ['cypress'] },
+  { canonical: 'Figma', type: 'tool', aliases: ['figma'] },
+  { canonical: 'UI/UX', type: 'technical', aliases: ['ui/ux', 'ux design', 'ui design', 'user experience'] },
+  { canonical: 'WordPress', type: 'tool', aliases: ['wordpress', 'woocommerce'] },
+  { canonical: 'Shopify', type: 'tool', aliases: ['shopify'] },
   { canonical: 'Machine Learning', type: 'technical', aliases: ['machine learning', 'ml', 'deep learning'] },
   { canonical: 'Data Analysis', type: 'technical', aliases: ['data analysis', 'analytics', 'pandas', 'numpy'] },
   { canonical: 'Product Thinking', type: 'soft', aliases: ['product thinking', 'product strategy', 'user research'] },
@@ -117,11 +122,18 @@ export function parseCvText(text: string, filename = 'uploaded-cv'): ParsedCvDoc
 
   const explicitYears = extractExplicitYears(cleanText)
   const experience = extractExperience(cleanText)
-  const durationYears = experience.reduce((total, item) => total + item.totalMonths, 0) / 12
+  const durationYears = calculateUniqueExperienceYears(experience)
   const totalYearsExperience = roundYears(Math.max(explicitYears, durationYears))
   const skills = extractSkills(cleanText, totalYearsExperience)
   const education = extractEducation(cleanText)
   const certifications = extractCertifications(cleanText)
+
+  if (!totalYearsExperience) {
+    warnings.push('Could not confidently extract total experience years from dated roles or an explicit years summary.')
+  }
+  if (skills.length < 3) {
+    warnings.push('Only a few skills were detected. Add comma-separated skills if the CV text extraction missed your stack.')
+  }
 
   return {
     label: filename.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ') || 'Uploaded CV',
@@ -184,7 +196,7 @@ function estimateSkillYears(text: string, skillAlias: string, totalYearsExperien
 
   if (nearbyYears.length) return roundYears(Math.max(...nearbyYears))
   if (totalYearsExperience > 0) return roundYears(Math.min(totalYearsExperience, 5))
-  return 1
+  return 0
 }
 
 function extractExplicitYears(text: string) {
@@ -200,21 +212,24 @@ function extractExperience(text: string): CvExperience[] {
   const lines = text
     .split('\n')
     .map((line) => line.trim())
-    .filter(Boolean)
+    .filter((line) => line && !isLikelySectionHeading(line))
 
   const entries: CvExperience[] = []
   const seen = new Set<string>()
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
-    if (!roleWords.test(line)) continue
-
-    const windowText = [line, lines[index + 1], lines[index + 2]].filter(Boolean).join(' ')
+    const windowText = [lines[index - 2], lines[index - 1], line, lines[index + 1], lines[index + 2]]
+      .filter(Boolean)
+      .join(' ')
     const range = parseDateRange(windowText)
     if (!range) continue
 
-    const title = extractTitle(line)
-    const company = extractCompany(line, lines[index + 1])
+    const titleLine = findTitleLine(lines, index)
+    if (!titleLine) continue
+
+    const title = extractTitle(titleLine)
+    const company = extractCompany(titleLine, lines[index - 1], lines[index + 1])
     const key = `${title}:${company}:${range.startDate}:${range.endDate ?? 'present'}`
     if (seen.has(key)) continue
 
@@ -230,6 +245,17 @@ function extractExperience(text: string): CvExperience[] {
   }
 
   return entries.slice(0, 12)
+}
+
+function findTitleLine(lines: string[], dateLineIndex: number) {
+  const candidates = [
+    lines[dateLineIndex],
+    lines[dateLineIndex - 1],
+    lines[dateLineIndex - 2],
+    lines[dateLineIndex + 1],
+  ].filter(Boolean)
+
+  return candidates.find((candidate) => roleWords.test(candidate) && !isMostlyDate(candidate))
 }
 
 function parseDateRange(text: string) {
@@ -254,6 +280,9 @@ function parseDateRange(text: string) {
 }
 
 function parseMonthYear(value: string) {
+  const isoMonth = value.match(/^(\d{4})-(\d{2})$/)
+  if (isoMonth) return new Date(Number(isoMonth[1]), Number(isoMonth[2]) - 1, 1)
+
   const parts = value.toLowerCase().trim().split(/\s+/)
   const year = Number(parts[parts.length - 1])
   if (!Number.isFinite(year)) return null
@@ -274,13 +303,45 @@ function extractTitle(line: string) {
   return beforeSeparator && roleWords.test(beforeSeparator) ? beforeSeparator.slice(0, 90) : line.slice(0, 90)
 }
 
-function extractCompany(line: string, nextLine?: string) {
+function extractCompany(line: string, previousLine?: string, nextLine?: string) {
   const atMatch = line.match(/\s(?:at|@)\s([^|,–—-]+)/i)
   if (atMatch?.[1]) return atMatch[1].trim().slice(0, 90)
   const parts = line.split(/\s+[-–—|]\s+/)
   if (parts[1] && !/\d{4}/.test(parts[1])) return parts[1].trim().slice(0, 90)
+  if (previousLine && !roleWords.test(previousLine) && !/\d{4}/.test(previousLine)) return previousLine.trim().slice(0, 90)
   if (nextLine && !roleWords.test(nextLine) && !/\d{4}/.test(nextLine)) return nextLine.trim().slice(0, 90)
   return 'Unknown company'
+}
+
+function calculateUniqueExperienceYears(experience: CvExperience[]) {
+  const months = new Set<string>()
+
+  for (const item of experience) {
+    if (!item.startDate) continue
+    const start = parseMonthYear(item.startDate)
+    const end = item.isCurrent || !item.endDate ? new Date() : parseMonthYear(item.endDate)
+    if (!start || !end || end < start) continue
+
+    const cursor = new Date(start)
+    while (cursor <= end) {
+      months.add(toYearMonth(cursor))
+      cursor.setMonth(cursor.getMonth() + 1)
+    }
+  }
+
+  return months.size / 12
+}
+
+function isLikelySectionHeading(line: string) {
+  return /^(experience|work experience|professional experience|employment|skills|technical skills|education|certifications?)$/i.test(
+    line.trim(),
+  )
+}
+
+function isMostlyDate(line: string) {
+  return /^\s*(?:(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+)?\d{4}\s*(?:-|–|—|to|through)\s*(?:(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+)?(?:\d{4}|present|current|now)\s*$/i.test(
+    line,
+  )
 }
 
 function extractEducation(text: string) {
@@ -299,5 +360,5 @@ function extractCertifications(text: string) {
 
 function roundYears(value: number) {
   if (!Number.isFinite(value) || value <= 0) return 0
-  return Math.round(value * 10) / 10
+  return Math.max(1, Math.round(value))
 }
