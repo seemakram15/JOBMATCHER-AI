@@ -1,0 +1,95 @@
+openapi: 3.0.3
+info:
+  title: Jobmatcher API
+  version: 0.1.0
+  description: Initial API contract scaffolded from the JobMatch AI PRD.
+servers:
+  - url: https://api.jobmatch.ai/v1
+paths:
+  /auth/register:
+    post:
+      summary: Create a user account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered.
+  /cv/upload:
+    post:
+      summary: Upload a PDF or DOCX CV and queue AI parsing.
+      responses:
+        '201':
+          description: CV queued for parsing.
+  /jobs:
+    get:
+      summary: List scored jobs with filters.
+      parameters:
+        - in: query
+          name: score_min
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [score, date, salary, company]
+      responses:
+        '200':
+          description: Paginated scored jobs.
+  /applications:
+    get:
+      summary: List user applications.
+      responses:
+        '200':
+          description: Applications returned.
+    post:
+      summary: Record a job application.
+      responses:
+        '201':
+          description: Application recorded.
+  /dashboard/stats:
+    get:
+      summary: Return dashboard KPI widgets.
+      responses:
+        '200':
+          description: Dashboard stats.
+  /admin/health:
+    get:
+      summary: Return admin system health.
+      responses:
+        '200':
+          description: Health snapshot.
+components:
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [email, password, name]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 12
+        name:
+          type: string
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string

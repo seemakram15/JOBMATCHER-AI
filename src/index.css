@@ -1,0 +1,70 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    font-family: Inter, system-ui, sans-serif;
+    background: #121218;
+    color: #e8eaed;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    min-width: 320px;
+    min-height: 100vh;
+    margin: 0;
+    background:
+      linear-gradient(180deg, rgba(74, 144, 217, 0.12), rgba(18, 18, 24, 0) 260px),
+      #121218;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
+
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid #4a90d9;
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: rgba(74, 144, 217, 0.35);
+  }
+}
+
+@layer components {
+  .panel {
+    @apply border border-line bg-panel/85 shadow-soft backdrop-blur;
+  }
+
+  .control {
+    @apply border border-line bg-bg/80 text-ink placeholder:text-muted;
+  }
+
+  .icon-button {
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-md border border-line bg-panel text-muted transition hover:border-primary hover:text-ink;
+  }
+}
