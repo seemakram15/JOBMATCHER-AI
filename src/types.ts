@@ -58,6 +58,18 @@ export interface CvProfile {
   totalYearsExperience: number
 }
 
+export interface ParsedCvPayload {
+  label: string
+  filename: string
+  text: string
+  skills: CvSkill[]
+  experience: CvExperience[]
+  totalYearsExperience: number
+  education: string[]
+  certifications: string[]
+  warnings: string[]
+}
+
 export interface SkillRequirement {
   skill: string
   required: boolean

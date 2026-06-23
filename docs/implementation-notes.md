@@ -6,6 +6,7 @@ This repository starts as a Vite + React + TypeScript app that follows the attac
 
 - Dark-first product shell with Dashboard, Discovery, CV Hub, Tracker, Alerts, Admin, and Settings routes.
 - Deterministic local matching engine using the PRD score formula: skills, experience, role title, location, and recency.
+- Local CV parser endpoint for PDF/DOCX/DOC/TXT uploads using `pdf-parse`, `mammoth`, and taxonomy/date heuristics. Anthropic is no longer required for first-pass parsing.
 - Mock user/CV/jobs/applications/sources data shaped to match the Supabase schema and REST API reference.
 - Interactive save/apply flows, kanban status movement, CV activation, notification read state, filters, sorting, CSV export, sanitized job detail HTML, and charts.
 - Supabase migration scaffold for the core tables, indexes, and RLS policies.
@@ -23,6 +24,10 @@ Dummy keys are provided in `.env.example`. Replace them when Supabase, Anthropic
 
 1. Create the Supabase project and run `supabase/migrations/001_initial_schema.sql`.
 2. Replace mock Zustand state with TanStack Query calls against the API.
-3. Implement `/cv/upload` storage plus Claude parsing.
+3. Implement `/cv/upload` storage persistence around the local parser and save parsed results into `cvs`, `cv_skills`, and `cv_experience`.
 4. Wire the worker normalizers to Apify/direct API/RSS fetchers.
 5. Add auth middleware, rate limiting, and request validation.
+
+## Supabase admin note
+
+Project database credentials and publishable keys do not authenticate to the Supabase Management API. Supabase documents that Management API calls require a dashboard Personal Access Token or OAuth bearer token. Use that token to fetch secret/service-role keys or update hosted Auth provider settings programmatically.

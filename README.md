@@ -6,7 +6,7 @@ Jobmatcher is an AI-ranked job discovery and application tracking app based on t
 
 - Dashboard with KPIs, activity chart, application funnel, and skills gap.
 - Job discovery with score-first cards, advanced filters, detail panel, sanitized descriptions, save, and apply tracking.
-- CV hub with profile/CV/preference onboarding, parsed skills, and multiple CV activation.
+- CV hub with profile/CV/preference onboarding, local PDF/DOCX/TXT parsing, parsed skills, and multiple CV activation.
 - Application tracker with drag-and-drop kanban columns and CSV export.
 - Alerts, admin source health, settings, dummy env keys, database migration, and API/worker scaffolds.
 
@@ -44,5 +44,6 @@ Copy `.env.example` to `.env.local` and replace the dummy values when Supabase, 
 
 - `supabase/migrations/001_initial_schema.sql` contains the first database schema, indexes, and RLS policies.
 - `api/openapi.yaml` captures the first API contract surface.
+- `api/parse-cv.ts` parses CV uploads locally without Anthropic.
 - `workers/job-aggregator/src/index.ts` contains job normalisation and dedup hash logic for Apify/API/RSS ingestion.
 - `docs/implementation-notes.md` captures the next integration steps.
