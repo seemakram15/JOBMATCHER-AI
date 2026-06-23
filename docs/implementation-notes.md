@@ -5,16 +5,17 @@ This repository starts as a Vite + React + TypeScript app that follows the attac
 ## What is implemented now
 
 - Dark-first product shell with Dashboard, Discovery, CV Hub, Tracker, Alerts, Admin, and Settings routes.
+- Supabase Auth signup/signin with user-scoped workspace loading.
 - Deterministic local matching engine using the PRD score formula: skills, experience, role title, location, and recency.
 - Local CV parser endpoint for PDF/DOCX/DOC/TXT uploads using `pdf-parse`, `mammoth`, and taxonomy/date heuristics. Anthropic is no longer required for first-pass parsing.
-- Mock user/CV/jobs/applications/sources data shaped to match the Supabase schema and REST API reference.
+- User-owned profile, CVs, extracted skills, editable extracted experience, live job search results, applications, and notifications.
 - Interactive save/apply flows, kanban status movement, CV activation, notification read state, filters, sorting, CSV export, sanitized job detail HTML, and charts.
-- Supabase migration scaffold for the core tables, indexes, and RLS policies.
+- Supabase migrations for the core tables, indexes, RLS policies, and authenticated workspace write paths.
 - OpenAPI starter and job aggregator normalizer scaffold.
 
 ## Keys
 
-Dummy keys are provided in `.env.example`. Replace them when Supabase, Anthropic, Apify, SerpAPI, Resend, OAuth, and Upstash projects are ready.
+Sample keys are provided in `.env.example`. Replace them when Supabase, Apify, SerpAPI, Resend, OAuth, and Upstash projects are ready. The CV parser no longer needs Anthropic for first-pass extraction.
 
 ## Audit note
 
@@ -22,11 +23,10 @@ Dummy keys are provided in `.env.example`. Replace them when Supabase, Anthropic
 
 ## Next backend steps
 
-1. Create the Supabase project and run `supabase/migrations/001_initial_schema.sql`.
-2. Replace mock Zustand state with TanStack Query calls against the API.
-3. Implement `/cv/upload` storage persistence around the local parser and save parsed results into `cvs`, `cv_skills`, and `cv_experience`.
-4. Wire the worker normalizers to Apify/direct API/RSS fetchers.
-5. Add auth middleware, rate limiting, and request validation.
+1. Move CV file binaries into Supabase Storage while keeping parsed data in `cvs`, `cv_skills`, and `cv_experience`.
+2. Add server-side API validation around profile/CV/application writes.
+3. Expand live extraction with Apify actor runs and webhook ingestion.
+4. Add rate limiting and request validation.
 
 ## Supabase admin note
 
