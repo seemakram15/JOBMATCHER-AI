@@ -132,26 +132,26 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
   signUp: async (email, password, name) => {
     const client = requireSupabase()
     set({ authStatus: 'loading', authMessage: '' })
-    const { data, error } = await client.auth.signUp({
-      email,
-      password,
-      options: { data: { full_name: name } },
+
+    const response = await fetch('/api/auth-signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, name }),
     })
+
+    const payload = (await response.json()) as { error?: { message: string } }
+    if (!response.ok) {
+      const message = payload.error?.message || 'Signup failed.'
+      set({ authStatus: 'error', authMessage: message })
+      throw new Error(message)
+    }
+
+    const { data, error } = await client.auth.signInWithPassword({ email, password })
     if (error) {
       set({ authStatus: 'error', authMessage: error.message })
       throw error
     }
-
-    if (data.session?.user) {
-      await loadWorkspaceForUser(data.session.user.id, data.session.user.email || email)
-      return
-    }
-
-    set({
-      authStatus: 'unauthenticated',
-      workspaceStatus: 'idle',
-      authMessage: 'Signup created. Check your email if Supabase email confirmation is enabled, then sign in.',
-    })
+    if (data.user) await loadWorkspaceForUser(data.user.id, data.user.email || email)
   },
   signIn: async (email, password) => {
     const client = requireSupabase()

@@ -39,7 +39,7 @@ npm run build
 
 ## Environment
 
-Copy `.env.example` to `.env.local` and replace the sample values when Supabase, Apify, SerpAPI, Resend, OAuth, and Upstash are ready. The CV parser works locally without an AI key.
+Copy `.env.example` to `.env.local` and replace the sample values when Supabase, Apify, SerpAPI, Resend, OAuth, and Upstash are ready. `SUPABASE_SERVICE_ROLE_KEY` is required for no-email admin signup. The CV parser works locally without an AI key.
 
 ## Backend Scaffolds
 

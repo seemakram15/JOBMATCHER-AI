@@ -256,7 +256,7 @@ function AuthPage() {
     try {
       if (mode === 'signup') {
         await signUp(email.trim(), password, name.trim())
-        setFormMessage('Account created. If email confirmation is enabled, confirm your email and sign in.')
+        setFormMessage('Account created. Signing you in now.')
       } else {
         await signIn(email.trim(), password)
       }
