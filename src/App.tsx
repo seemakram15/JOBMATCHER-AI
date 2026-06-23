@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import {
   Bell,
@@ -41,7 +41,7 @@ import { KanbanBoard } from './components/KanbanBoard'
 import { filterAndSortJobs, scoreJobs } from './lib/scoring'
 import { defaultFilters } from './data/mockData'
 import { staticDashboardData, useJobmatchStore } from './store/useJobmatchStore'
-import type { ScoredJob } from './types'
+import type { ParsedCvPayload, ScoredJob } from './types'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -369,6 +369,40 @@ function CvHubPage() {
   const cvs = useJobmatchStore((state) => state.cvs)
   const activeCv = useJobmatchStore((state) => state.activeCv)
   const activateCv = useJobmatchStore((state) => state.activateCv)
+  const addParsedCv = useJobmatchStore((state) => state.addParsedCv)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [parseStatus, setParseStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
+  const [parseMessage, setParseMessage] = useState('')
+  const [lastParsedCv, setLastParsedCv] = useState<ParsedCvPayload | null>(null)
+
+  const handleCvUpload = async (file: File) => {
+    setParseStatus('uploading')
+    setParseMessage('Extracting text and parsing CV locally...')
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const response = await fetch('/api/parse-cv', {
+        method: 'POST',
+        body: formData,
+      })
+      const payload = (await response.json()) as { cv?: ParsedCvPayload; error?: { message: string } }
+
+      if (!response.ok || !payload.cv) {
+        throw new Error(payload.error?.message || 'CV parsing failed.')
+      }
+
+      addParsedCv(payload.cv)
+      setLastParsedCv(payload.cv)
+      setParseStatus('done')
+      setParseMessage(
+        `Parsed ${payload.cv.skills.length} skills and ${payload.cv.totalYearsExperience} years of experience.`,
+      )
+    } catch (error) {
+      setParseStatus('error')
+      setParseMessage(error instanceof Error ? error.message : 'CV parsing failed.')
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -407,8 +441,34 @@ function CvHubPage() {
             <div>
               <UploadCloud className="mx-auto text-primary" size={32} />
               <p className="mt-3 text-sm font-semibold text-ink">Drop a PDF or DOCX CV</p>
-              <p className="mt-1 text-xs text-muted">The upload endpoint, 5MB validation, and Claude parser contract are scaffolded.</p>
-              <button className="mt-4 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white">Browse file</button>
+              <p className="mt-1 text-xs text-muted">PDF, DOCX, DOC, and TXT are parsed without Anthropic or any AI API.</p>
+              <input
+                ref={fileInputRef}
+                className="hidden"
+                type="file"
+                accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) void handleCvUpload(file)
+                  event.target.value = ''
+                }}
+              />
+              <button
+                className="mt-4 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={parseStatus === 'uploading'}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {parseStatus === 'uploading' ? 'Parsing...' : 'Browse file'}
+              </button>
+              {parseMessage ? (
+                <p
+                  className={`mt-3 text-xs ${
+                    parseStatus === 'error' ? 'text-danger' : parseStatus === 'done' ? 'text-success' : 'text-muted'
+                  }`}
+                >
+                  {parseMessage}
+                </p>
+              ) : null}
             </div>
           </div>
         </div>
@@ -441,6 +501,11 @@ function CvHubPage() {
 
       <section className="panel p-5">
         <h2 className="text-lg font-semibold text-ink">Extracted skills</h2>
+        {lastParsedCv?.warnings.length ? (
+          <div className="mt-4 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
+            {lastParsedCv.warnings.join(' ')}
+          </div>
+        ) : null}
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {activeCv.skills.map((skill) => (
             <div key={skill.skillName} className="rounded-md border border-line bg-bg/60 p-4">
@@ -452,6 +517,42 @@ function CvHubPage() {
           ))}
         </div>
       </section>
+
+      {lastParsedCv ? (
+        <section className="grid gap-6 xl:grid-cols-2">
+          <div className="panel p-5">
+            <h2 className="text-lg font-semibold text-ink">Parsed experience</h2>
+            <div className="mt-4 space-y-3">
+              {lastParsedCv.experience.length ? (
+                lastParsedCv.experience.map((item) => (
+                  <div key={`${item.title}-${item.company}-${item.startDate}`} className="rounded-md border border-line bg-bg/60 p-4">
+                    <p className="font-semibold text-ink">{item.title}</p>
+                    <p className="mt-1 text-sm text-muted">
+                      {item.company} · {item.startDate} to {item.endDate ?? 'Present'} · {Math.round(item.totalMonths / 12)}y
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted">No dated experience blocks were detected.</p>
+              )}
+            </div>
+          </div>
+          <div className="panel p-5">
+            <h2 className="text-lg font-semibold text-ink">Education and certificates</h2>
+            <div className="mt-4 space-y-3">
+              {[...lastParsedCv.education, ...lastParsedCv.certifications].length ? (
+                [...lastParsedCv.education, ...lastParsedCv.certifications].map((item) => (
+                  <p key={item} className="rounded-md border border-line bg-bg/60 p-3 text-sm text-muted">
+                    {item}
+                  </p>
+                ))
+              ) : (
+                <p className="text-sm text-muted">No education or certification lines were detected.</p>
+              )}
+            </div>
+          </div>
+        </section>
+      ) : null}
     </div>
   )
 }
@@ -612,7 +713,7 @@ function SettingsPage() {
         <div className="mt-4 space-y-3">
           {[
             ['Supabase', 'SUPABASE_URL, SUPABASE_ANON_KEY, service-role key'],
-            ['Claude', 'ANTHROPIC_API_KEY for CV parsing and summaries'],
+            ['CV parser', 'PDF/DOCX/TXT parsing runs locally through /api/parse-cv'],
             ['Apify', 'APIFY_API_TOKEN plus webhook secret'],
             ['Email', 'RESEND_API_KEY for alerts and digests'],
             ['Redis', 'Upstash REST credentials for rate limits'],

@@ -24,6 +24,24 @@ paths:
       responses:
         '201':
           description: CV queued for parsing.
+  /parse-cv:
+    post:
+      summary: Parse a CV upload locally without an AI provider.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: PDF, DOCX, DOC, or TXT CV up to 5MB.
+      responses:
+        '200':
+          description: Parsed CV text, skills, experience, education, certifications, and warnings.
   /jobs:
     get:
       summary: List scored jobs with filters.

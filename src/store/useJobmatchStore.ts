@@ -18,6 +18,7 @@ import type {
   Job,
   JobFilters,
   NotificationItem,
+  ParsedCvPayload,
   UserProfile,
 } from '../types'
 
@@ -39,6 +40,7 @@ interface JobmatchState {
   updateApplicationStatus: (applicationId: string, status: ApplicationStatus) => void
   markAllNotificationsRead: () => void
   activateCv: (cvId: string) => void
+  addParsedCv: (parsedCv: ParsedCvPayload) => void
 }
 
 const createId = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 9)}`
@@ -185,6 +187,38 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
         profile,
         cvs,
         activeCv: getActiveCv(cvs, profile),
+      }
+    }),
+  addParsedCv: (parsedCv) =>
+    set((state) => {
+      const cv: CvProfile = {
+        id: createId('cv'),
+        label: parsedCv.label || 'Uploaded CV',
+        filename: parsedCv.filename,
+        version: state.cvs.length + 1,
+        isActive: true,
+        parseStatus: 'done',
+        parsedAt: timestamp(),
+        skills: parsedCv.skills,
+        experience: parsedCv.experience,
+        totalYearsExperience: parsedCv.totalYearsExperience,
+      }
+      const cvs = state.cvs.map((item) => ({ ...item, isActive: false }))
+      return {
+        cvs: [cv, ...cvs],
+        activeCv: cv,
+        profile: { ...state.profile, activeCvId: cv.id },
+        notifications: [
+          {
+            id: createId('not'),
+            type: 'system',
+            title: 'CV parsed locally',
+            message: `${parsedCv.skills.length} skills and ${parsedCv.totalYearsExperience} years of experience were extracted without an AI API.`,
+            isRead: false,
+            createdAt: timestamp(),
+          },
+          ...state.notifications,
+        ],
       }
     }),
 }))
