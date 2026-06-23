@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
-import { fetchLiveJobs } from '../src/lib/liveJobs'
+import { fetchLiveJobs } from '../src/lib/liveJobs.js'
 import {
   enforceRateLimit,
   handleOptions,
@@ -9,7 +9,7 @@ import {
   sendError,
   sendJson,
   setCors,
-} from './security'
+} from './security.js'
 
 const liveJobsQuerySchema = z.object({
   query: z

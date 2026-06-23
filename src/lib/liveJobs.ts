@@ -1,5 +1,5 @@
 import fetch from 'node-fetch'
-import { sanitiseJob } from './security'
+import { sanitiseJob } from './security.js'
 import type { ExperienceLevel, Job, JobType, SkillRequirement, WorkMode } from '../types'
 
 export interface LiveJobSearchInput {

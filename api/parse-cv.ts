@@ -2,8 +2,8 @@ import Busboy from 'busboy'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import mammoth from 'mammoth'
 import pdfParse from 'pdf-parse/lib/pdf-parse.js'
-import { parseCvText } from '../src/lib/cvParser'
-import { sanitiseParsedCv } from '../src/lib/security'
+import { parseCvText } from '../src/lib/cvParser.js'
+import { sanitiseParsedCv } from '../src/lib/security.js'
 import {
   assertSafeContentType,
   enforceRateLimit,
@@ -13,7 +13,7 @@ import {
   sendError,
   sendJson,
   setCors,
-} from './security'
+} from './security.js'
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024
 const allowedExtensions = new Set(['pdf', 'docx', 'doc', 'txt'])
