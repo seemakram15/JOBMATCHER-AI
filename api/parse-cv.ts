@@ -1,7 +1,7 @@
 import Busboy from 'busboy'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import mammoth from 'mammoth'
-import pdfParse from 'pdf-parse'
+import pdfParse from 'pdf-parse/lib/pdf-parse.js'
 import { parseCvText } from '../src/lib/cvParser'
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024

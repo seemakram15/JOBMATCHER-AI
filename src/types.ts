@@ -5,7 +5,6 @@ export type ExperienceLevel = 'entry' | 'mid' | 'senior' | 'lead' | 'executive'
 export type ApplicationStatus =
   | 'saved'
   | 'applied'
-  | 'phone_screen'
   | 'interviewing'
   | 'offer'
   | 'rejected'
@@ -175,6 +174,13 @@ export interface JobSource {
   jobsFetched: number
   jobsNew: number
   consecutiveFailures: number
+}
+
+export interface LiveJobSourceResult {
+  name: string
+  count: number
+  ok: boolean
+  error?: string
 }
 
 export interface JobFilters {

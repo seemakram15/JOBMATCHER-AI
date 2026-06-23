@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from 'react'
-import { NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import {
+  ArrowRight,
   Bell,
   BriefcaseBusiness,
   CalendarDays,
@@ -8,18 +9,26 @@ import {
   ClipboardList,
   DatabaseZap,
   FileText,
-  Gauge,
+  FileUp,
+  Globe2,
   LayoutDashboard,
   LockKeyhole,
+  LogIn,
   LogOut,
   Menu,
-  PanelLeft,
+  Plus,
+  Radio,
+  RefreshCw,
+  Rocket,
   Search,
   Settings,
   ShieldCheck,
   Sparkles,
+  Target,
   UploadCloud,
+  UserPlus,
   UserRound,
+  WandSparkles,
 } from 'lucide-react'
 import {
   Bar,
@@ -39,12 +48,12 @@ import { JobCard } from './components/JobCard'
 import { JobDetailPanel } from './components/JobDetailPanel'
 import { KanbanBoard } from './components/KanbanBoard'
 import { filterAndSortJobs, scoreJobs } from './lib/scoring'
-import { defaultFilters } from './data/mockData'
-import { staticDashboardData, useJobmatchStore } from './store/useJobmatchStore'
-import type { ParsedCvPayload, ScoredJob } from './types'
+import { defaultFilters } from './lib/defaults'
+import { useJobmatchStore } from './store/useJobmatchStore'
+import type { Application, CvExperience, Job, LiveJobSourceResult, ParsedCvPayload, ScoredJob } from './types'
 
 const navItems = [
-  { to: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/jobs', label: 'Discovery', icon: Search },
   { to: '/cv', label: 'CV Hub', icon: FileText },
   { to: '/tracker', label: 'Tracker', icon: ClipboardList },
@@ -54,10 +63,32 @@ const navItems = [
 ]
 
 function App() {
+  const location = useLocation()
+  const authStatus = useJobmatchStore((state) => state.authStatus)
+  const workspaceStatus = useJobmatchStore((state) => state.workspaceStatus)
+  const authMessage = useJobmatchStore((state) => state.authMessage)
+  const initializeAuth = useJobmatchStore((state) => state.initializeAuth)
+
+  useEffect(() => {
+    void initializeAuth()
+  }, [initializeAuth])
+
+  if (location.pathname === '/') {
+    return <LandingPage />
+  }
+
+  if (location.pathname === '/auth' || authStatus === 'unauthenticated' || authStatus === 'error') {
+    return <AuthPage />
+  }
+
+  if (authStatus === 'loading' || workspaceStatus === 'loading') {
+    return <LoadingScreen message={authMessage || 'Loading your workspace...'} />
+  }
+
   return (
     <AppShell>
       <Routes>
-        <Route path="/" element={<DashboardPage />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/jobs" element={<JobDiscoveryPage />} />
         <Route path="/cv" element={<CvHubPage />} />
         <Route path="/tracker" element={<TrackerPage />} />
@@ -69,10 +100,303 @@ function App() {
   )
 }
 
+function LandingPage() {
+  const featureCards = [
+    {
+      icon: <FileUp size={20} />,
+      title: 'Upload CV once',
+      text: 'PDF, DOCX, DOC, and TXT parsing runs locally and builds your skill profile.',
+    },
+    {
+      icon: <Radio size={20} />,
+      title: 'Extract live jobs',
+      text: 'Searches real remote job APIs and Google Jobs through your configured sources.',
+    },
+    {
+      icon: <Rocket size={20} />,
+      title: 'Rank by fit',
+      text: 'Scores jobs against your skills, experience, role target, location, and freshness.',
+    },
+  ]
+
+  return (
+    <main className="min-h-screen bg-bg text-ink">
+      <section className="relative min-h-[92vh] overflow-hidden">
+        <img
+          className="absolute inset-0 h-full w-full object-cover opacity-45"
+          src="https://images.unsplash.com/photo-1551836022-deb4988cc6c0?auto=format&fit=crop&w=1800&q=85"
+          alt=""
+        />
+        <div className="absolute inset-0 bg-gradient-to-br from-bg via-bg/82 to-bg/30" />
+
+        <header className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-5 py-5 md:px-8">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-md bg-primary text-white shadow-soft">
+              <Sparkles size={22} />
+            </div>
+            <div>
+              <p className="text-lg font-bold">Jobmatcher</p>
+              <p className="text-xs text-muted">AI-ranked job search</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <NavLink
+              className="inline-flex h-10 items-center gap-2 rounded-md border border-white/15 bg-white/8 px-4 text-sm font-semibold text-ink backdrop-blur transition hover:border-primary"
+              to="/auth?mode=signin"
+            >
+              <LogIn size={16} /> Sign in
+            </NavLink>
+            <NavLink
+              className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-white transition hover:bg-primary/90"
+              to="/auth?mode=signup"
+            >
+              <UserPlus size={16} /> Sign up
+            </NavLink>
+          </div>
+        </header>
+
+        <div className="relative z-10 mx-auto grid max-w-7xl items-center gap-10 px-5 pb-20 pt-16 md:px-8 lg:grid-cols-[1fr_520px] lg:pt-24">
+          <div>
+            <div className="mb-5 inline-flex items-center gap-2 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+              <WandSparkles size={16} />
+              Local CV parsing + live job extraction
+            </div>
+            <h1 className="max-w-4xl text-5xl font-extrabold leading-tight text-white md:text-7xl">
+              Find the jobs that fit your CV.
+            </h1>
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
+              Upload your CV, add skills manually, fetch real listings, and track every application without a messy spreadsheet.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <NavLink
+                className="inline-flex h-12 items-center gap-2 rounded-md bg-primary px-5 text-sm font-bold text-white shadow-soft transition hover:bg-primary/90"
+                to="/auth?mode=signup"
+              >
+                Upload CV <ArrowRight size={17} />
+              </NavLink>
+              <NavLink
+                className="inline-flex h-12 items-center gap-2 rounded-md border border-white/15 bg-white/8 px-5 text-sm font-bold text-ink backdrop-blur transition hover:border-primary"
+                to="/auth?mode=signin"
+              >
+                Explore jobs <Search size={17} />
+              </NavLink>
+            </div>
+          </div>
+
+          <div className="rounded-md border border-white/12 bg-panel/75 p-4 shadow-soft backdrop-blur">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm text-muted">Live matching preview</p>
+                <p className="font-semibold text-ink">Senior Frontend Engineer</p>
+              </div>
+              <div className="rounded-md border border-success/30 bg-success/10 px-3 py-2 font-mono text-xl font-bold text-success">
+                92%
+              </div>
+            </div>
+            <div className="space-y-3">
+              {[
+                ['React Platform Engineer', 'Remote', 'React, TypeScript, APIs'],
+                ['Product Frontend Engineer', 'Hybrid', 'Vite, Tailwind, Charts'],
+                ['AI Workflow Developer', 'Remote', 'Node.js, PostgreSQL, REST'],
+              ].map(([title, location, skills]) => (
+                <div key={title} className="rounded-md border border-line bg-bg/70 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-ink">{title}</p>
+                      <p className="mt-1 text-xs text-muted">{location}</p>
+                    </div>
+                    <BriefcaseBusiness className="text-primary" size={20} />
+                  </div>
+                  <p className="mt-3 text-xs text-muted">{skills}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto grid max-w-7xl gap-4 px-5 py-10 md:grid-cols-3 md:px-8">
+        {featureCards.map((feature) => (
+          <article key={feature.title} className="rounded-md border border-line bg-panel/80 p-5">
+            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-md bg-primary/15 text-primary">
+              {feature.icon}
+            </div>
+            <h2 className="text-lg font-semibold">{feature.title}</h2>
+            <p className="mt-2 text-sm leading-6 text-muted">{feature.text}</p>
+          </article>
+        ))}
+      </section>
+    </main>
+  )
+}
+
+function AuthPage() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const queryMode = new URLSearchParams(location.search).get('mode')
+  const authStatus = useJobmatchStore((state) => state.authStatus)
+  const workspaceStatus = useJobmatchStore((state) => state.workspaceStatus)
+  const authMessage = useJobmatchStore((state) => state.authMessage)
+  const signIn = useJobmatchStore((state) => state.signIn)
+  const signUp = useJobmatchStore((state) => state.signUp)
+  const [mode, setMode] = useState<'signin' | 'signup'>(queryMode === 'signup' ? 'signup' : 'signin')
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [formMessage, setFormMessage] = useState('')
+
+  useEffect(() => {
+    if (authStatus === 'authenticated' && workspaceStatus === 'ready') navigate('/dashboard')
+  }, [authStatus, workspaceStatus, navigate])
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setFormMessage('')
+
+    try {
+      if (mode === 'signup') {
+        await signUp(email.trim(), password, name.trim())
+        setFormMessage('Account created. If email confirmation is enabled, confirm your email and sign in.')
+      } else {
+        await signIn(email.trim(), password)
+      }
+    } catch (error) {
+      setFormMessage(error instanceof Error ? error.message : 'Authentication failed.')
+    }
+  }
+
+  return (
+    <main className="grid min-h-screen bg-bg text-ink lg:grid-cols-[1fr_520px]">
+      <section className="relative hidden overflow-hidden lg:block">
+        <img
+          className="absolute inset-0 h-full w-full object-cover opacity-55"
+          src="https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1600&q=85"
+          alt=""
+        />
+        <div className="absolute inset-0 bg-gradient-to-br from-bg via-bg/80 to-bg/20" />
+        <div className="relative z-10 flex h-full flex-col justify-between p-10">
+          <NavLink className="flex items-center gap-3" to="/">
+            <div className="flex h-11 w-11 items-center justify-center rounded-md bg-primary text-white shadow-soft">
+              <Sparkles size={22} />
+            </div>
+            <div>
+              <p className="text-lg font-bold">Jobmatcher</p>
+              <p className="text-xs text-muted">Private user workspace</p>
+            </div>
+          </NavLink>
+          <div>
+            <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+              <ShieldCheck size={16} />
+              User-owned data through Supabase Auth
+            </div>
+            <h1 className="max-w-xl text-5xl font-extrabold leading-tight text-white">
+              Your CV, jobs, and tracker belong to your account.
+            </h1>
+          </div>
+        </div>
+      </section>
+
+      <section className="flex items-center justify-center px-5 py-10">
+        <div className="w-full max-w-md">
+          <div className="mb-8 lg:hidden">
+            <NavLink className="flex items-center gap-3" to="/">
+              <div className="flex h-11 w-11 items-center justify-center rounded-md bg-primary text-white shadow-soft">
+                <Sparkles size={22} />
+              </div>
+              <div>
+                <p className="text-lg font-bold">Jobmatcher</p>
+                <p className="text-xs text-muted">AI-ranked job search</p>
+              </div>
+            </NavLink>
+          </div>
+
+          <div className="panel p-6">
+            <div className="mb-6 flex rounded-md border border-line bg-bg/70 p-1">
+              {(['signin', 'signup'] as const).map((item) => (
+                <button
+                  key={item}
+                  className={`h-10 flex-1 rounded-md text-sm font-semibold transition ${
+                    mode === item ? 'bg-primary text-white' : 'text-muted hover:text-ink'
+                  }`}
+                  onClick={() => setMode(item)}
+                >
+                  {item === 'signin' ? 'Sign in' : 'Sign up'}
+                </button>
+              ))}
+            </div>
+
+            <form className="space-y-4" onSubmit={submit}>
+              {mode === 'signup' ? (
+                <label className="block text-xs font-medium uppercase text-muted">
+                  Name
+                  <input
+                    className="control mt-2 h-11 w-full rounded-md px-3 text-sm normal-case"
+                    required
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                </label>
+              ) : null}
+              <label className="block text-xs font-medium uppercase text-muted">
+                Email
+                <input
+                  className="control mt-2 h-11 w-full rounded-md px-3 text-sm normal-case"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                />
+              </label>
+              <label className="block text-xs font-medium uppercase text-muted">
+                Password
+                <input
+                  className="control mt-2 h-11 w-full rounded-md px-3 text-sm normal-case"
+                  type="password"
+                  autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                  minLength={6}
+                  required
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </label>
+              <button
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={authStatus === 'loading'}
+              >
+                {mode === 'signup' ? <UserPlus size={16} /> : <LogIn size={16} />}
+                {authStatus === 'loading' ? 'Please wait...' : mode === 'signup' ? 'Create account' : 'Sign in'}
+              </button>
+            </form>
+
+            {[formMessage, authMessage].filter(Boolean).map((message) => (
+              <p key={message} className={`mt-4 text-sm ${authStatus === 'error' ? 'text-danger' : 'text-muted'}`}>
+                {message}
+              </p>
+            ))}
+          </div>
+        </div>
+      </section>
+    </main>
+  )
+}
+
+function LoadingScreen({ message }: { message: string }) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-bg px-5 text-ink">
+      <div className="panel w-full max-w-sm p-6 text-center">
+        <RefreshCw className="mx-auto animate-spin text-primary" size={28} />
+        <p className="mt-4 font-semibold">{message}</p>
+      </div>
+    </main>
+  )
+}
+
 function AppShell({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const profile = useJobmatchStore((state) => state.profile)
   const notifications = useJobmatchStore((state) => state.notifications)
+  const signOut = useJobmatchStore((state) => state.signOut)
   const unread = notifications.filter((notification) => !notification.isRead).length
   const pageLabel = navItems.find((item) => item.to === location.pathname)?.label ?? 'Dashboard'
 
@@ -121,7 +445,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
               Source health
             </div>
             <p className="mt-2 text-xs leading-5 text-muted">
-              5 sources seeded. Apify, RSS, and API paths are scaffolded with dummy keys.
+              Live extraction reads direct job APIs and server-only search keys from local env.
             </p>
           </div>
         </aside>
@@ -155,6 +479,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
                   <p className="text-xs text-muted">{profile.role}</p>
                 </div>
               </div>
+              <button className="icon-button" onClick={() => void signOut()} aria-label="Sign out" title="Sign out">
+                <LogOut size={17} />
+              </button>
             </div>
           </header>
           <main id="main-content" className="p-4 md:p-6">
@@ -182,32 +509,89 @@ function useScoredJobs() {
   return useMemo(() => scoreJobs(profile, activeCv, jobs, savedJobIds), [profile, activeCv, jobs, savedJobIds])
 }
 
+function useLiveJobSearch() {
+  const navigate = useNavigate()
+  const setLiveJobs = useJobmatchStore((state) => state.setLiveJobs)
+  const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+  const [message, setMessage] = useState('')
+
+  const runLiveSearch = async (goToJobs = false) => {
+    const { profile, activeCv } = useJobmatchStore.getState()
+    const skills = activeCv.skills.map((skill) => skill.skillName).slice(0, 10)
+    const query = [profile.targetRole, ...skills.slice(0, 4)].filter(Boolean).join(' ')
+    const params = new URLSearchParams({
+      query,
+      location: profile.preferredRemote ? 'Remote' : profile.location,
+      skills: skills.join(','),
+      experienceYears: String(activeCv.totalYearsExperience || 0),
+      limit: '60',
+    })
+
+    setStatus('loading')
+    setMessage('Fetching real jobs from live sources...')
+
+    try {
+      const response = await fetch(`/api/live-jobs?${params.toString()}`)
+      const payload = (await response.json()) as {
+        jobs?: Job[]
+        sources?: LiveJobSourceResult[]
+        error?: { message: string }
+      }
+
+      if (!response.ok || !payload.jobs) {
+        throw new Error(payload.error?.message || 'Live job extraction failed.')
+      }
+
+      setLiveJobs(payload.jobs, payload.sources || [])
+      setStatus('done')
+      setMessage(`Fetched ${payload.jobs.length} real jobs from live sources.`)
+      if (goToJobs) navigate('/jobs')
+    } catch (error) {
+      setStatus('error')
+      setMessage(error instanceof Error ? error.message : 'Live job extraction failed.')
+    }
+  }
+
+  return { status, message, runLiveSearch }
+}
+
 function DashboardPage() {
   const scoredJobs = useScoredJobs()
   const applications = useJobmatchStore((state) => state.applications)
   const activeCv = useJobmatchStore((state) => state.activeCv)
   const profile = useJobmatchStore((state) => state.profile)
+  const searchedJobsCount = useJobmatchStore((state) => state.searchedJobsCount)
+  const lastLiveSearchAt = useJobmatchStore((state) => state.lastLiveSearchAt)
   const savedCount = applications.filter((application) => application.status === 'saved').length
-  const interviews = applications.filter((application) =>
-    ['phone_screen', 'interviewing'].includes(application.status),
-  ).length
-  const averageScore = Math.round(
-    scoredJobs.reduce((total, scoredJob) => total + scoredJob.match.totalScore, 0) / scoredJobs.length,
-  )
+  const interviews = applications.filter((application) => application.status === 'interviewing').length
+  const averageScore = scoredJobs.length
+    ? Math.round(scoredJobs.reduce((total, scoredJob) => total + scoredJob.match.totalScore, 0) / scoredJobs.length)
+    : 0
   const jobsToday = scoredJobs.filter(
     ({ job }) => Date.now() - new Date(job.postedAt).getTime() <= 24 * 36e5,
   ).length
-  const funnel = ['saved', 'applied', 'phone_screen', 'interviewing', 'offer'].map((status) => ({
+  const activity = useMemo(
+    () => buildActivity(applications, searchedJobsCount, lastLiveSearchAt),
+    [applications, searchedJobsCount, lastLiveSearchAt],
+  )
+  const skillDemand = useMemo(() => buildSkillDemand(scoredJobs, activeCv.skills.map((skill) => skill.skillCanonical)), [
+    scoredJobs,
+    activeCv.skills,
+  ])
+  const funnel = ['saved', 'applied', 'interviewing', 'offer'].map((status) => ({
     status: status.replace('_', ' '),
     count: applications.filter((application) => application.status === status).length,
   }))
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard icon={<BriefcaseBusiness size={20} />} label="Jobs today" value={jobsToday} />
-        <StatCard icon={<ClipboardList size={20} />} label="Applications" value={applications.length} />
-        <StatCard icon={<Gauge size={20} />} label="Avg score" value={`${averageScore}/100`} />
+      <section className="grid gap-4 md:grid-cols-3">
+        <StatCard icon={<Search size={20} />} label="Searched jobs" value={searchedJobsCount} />
+        <StatCard
+          icon={<ClipboardList size={20} />}
+          label="Applied jobs"
+          value={applications.filter((application) => application.status === 'applied').length}
+        />
         <StatCard icon={<CalendarDays size={20} />} label="Interviews" value={interviews} />
       </section>
 
@@ -219,12 +603,12 @@ function DashboardPage() {
               <p className="text-sm text-muted">Viewed and applied activity over the last two weeks.</p>
             </div>
             <span className="rounded-md border border-success/30 bg-success/10 px-3 py-1 text-sm text-success">
-              {savedCount} saved
+              {savedCount} saved · {jobsToday} new today · avg {averageScore}/100
             </span>
           </div>
           <div className="h-72">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={staticDashboardData.activity}>
+              <LineChart data={activity}>
                 <CartesianGrid stroke="#2D2D3A" strokeDasharray="3 3" />
                 <XAxis dataKey="date" stroke="#8B93A7" fontSize={12} />
                 <YAxis stroke="#8B93A7" fontSize={12} />
@@ -252,7 +636,9 @@ function DashboardPage() {
             ))}
           </div>
           <p className="mt-4 text-xs leading-5 text-muted">
-            Targeting {profile.targetRole} roles from {profile.location}, with remote preference enabled.
+            Targeting {profile.targetRole} roles from {profile.location}, with remote preference{' '}
+            {profile.preferredRemote ? 'enabled' : 'disabled'}.
+            {lastLiveSearchAt ? ` Last live search: ${formatDistanceToNowStrict(new Date(lastLiveSearchAt), { addSuffix: true })}.` : ''}
           </p>
         </div>
       </section>
@@ -276,20 +662,26 @@ function DashboardPage() {
         <div className="panel p-5">
           <h2 className="text-lg font-semibold text-ink">Skills gap</h2>
           <div className="mt-4 space-y-4">
-            {staticDashboardData.skillDemand.map((skill) => (
-              <div key={skill.skill}>
-                <div className="mb-1 flex items-center justify-between text-sm">
-                  <span className={skill.userHas ? 'text-ink' : 'text-warning'}>{skill.skill}</span>
-                  <span className="font-mono text-muted">{skill.marketDemandPct}%</span>
+            {skillDemand.length ? (
+              skillDemand.map((skill) => (
+                <div key={skill.skill}>
+                  <div className="mb-1 flex items-center justify-between text-sm">
+                    <span className={skill.userHas ? 'text-ink' : 'text-warning'}>{skill.skill}</span>
+                    <span className="font-mono text-muted">{skill.marketDemandPct}%</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-line">
+                    <div
+                      className={`h-full rounded-full ${skill.userHas ? 'bg-success' : 'bg-warning'}`}
+                      style={{ width: `${skill.marketDemandPct}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="h-2 overflow-hidden rounded-full bg-line">
-                  <div
-                    className={`h-full rounded-full ${skill.userHas ? 'bg-success' : 'bg-warning'}`}
-                    style={{ width: `${skill.marketDemandPct}%` }}
-                  />
-                </div>
-              </div>
-            ))}
+              ))
+            ) : (
+              <p className="text-sm leading-6 text-muted">
+                Run live extraction after uploading a CV to see market demand against your own skills.
+              </p>
+            )}
           </div>
         </div>
       </section>
@@ -297,15 +689,68 @@ function DashboardPage() {
   )
 }
 
+function buildActivity(applications: Application[], searchedJobsCount: number, lastLiveSearchAt: string | null) {
+  const days = Array.from({ length: 14 }, (_, index) => {
+    const date = new Date()
+    date.setDate(date.getDate() - (13 - index))
+    const key = date.toISOString().slice(0, 10)
+    return { date: key.slice(5), key, jobsViewed: 0, jobsApplied: 0 }
+  })
+
+  if (lastLiveSearchAt) {
+    const searchKey = new Date(lastLiveSearchAt).toISOString().slice(0, 10)
+    const bucket = days.find((day) => day.key === searchKey)
+    if (bucket) bucket.jobsViewed = searchedJobsCount
+  }
+
+  for (const application of applications) {
+    const createdKey = new Date(application.createdAt).toISOString().slice(0, 10)
+    const createdBucket = days.find((day) => day.key === createdKey)
+    if (createdBucket) createdBucket.jobsViewed += 1
+
+    if (application.appliedAt) {
+      const appliedKey = new Date(application.appliedAt).toISOString().slice(0, 10)
+      const appliedBucket = days.find((day) => day.key === appliedKey)
+      if (appliedBucket) appliedBucket.jobsApplied += 1
+    }
+  }
+
+  return days
+}
+
+function buildSkillDemand(scoredJobs: ScoredJob[], userSkills: string[]) {
+  const userSkillSet = new Set(userSkills.map((skill) => skill.toLowerCase()))
+  const counts = new Map<string, number>()
+
+  for (const { job } of scoredJobs) {
+    for (const skill of job.skillsRequired) {
+      counts.set(skill.skill, (counts.get(skill.skill) || 0) + 1)
+    }
+  }
+
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([skill, count]) => ({
+      skill,
+      userHas: userSkillSet.has(skill.toLowerCase()),
+      marketDemandPct: Math.max(10, Math.round((count / Math.max(scoredJobs.length, 1)) * 100)),
+    }))
+}
+
 function JobDiscoveryPage() {
   const scoredJobs = useScoredJobs()
+  const activeCv = useJobmatchStore((state) => state.activeCv)
   const filters = useJobmatchStore((state) => state.filters)
   const selectedJobId = useJobmatchStore((state) => state.selectedJobId)
+  const liveJobSources = useJobmatchStore((state) => state.liveJobSources)
+  const lastLiveSearchAt = useJobmatchStore((state) => state.lastLiveSearchAt)
   const setFilters = useJobmatchStore((state) => state.setFilters)
   const resetFilters = useJobmatchStore((state) => state.resetFilters)
   const setSelectedJob = useJobmatchStore((state) => state.setSelectedJob)
   const toggleSave = useJobmatchStore((state) => state.toggleSave)
   const applyToJob = useJobmatchStore((state) => state.applyToJob)
+  const liveSearch = useLiveJobSearch()
   const filteredJobs = useMemo(() => filterAndSortJobs(scoredJobs, filters), [scoredJobs, filters])
   const selected = filteredJobs.find(({ job }) => job.id === selectedJobId) ?? filteredJobs[0] ?? scoredJobs[0]
   const sources = Array.from(new Set(scoredJobs.map(({ job }) => job.sourcePlatform))).sort()
@@ -325,7 +770,15 @@ function JobDiscoveryPage() {
             <p className="text-sm text-muted">AI-ranked feed</p>
             <h2 className="text-2xl font-bold text-ink">{filteredJobs.length} matched roles</h2>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={liveSearch.status === 'loading'}
+              onClick={() => void liveSearch.runLiveSearch(false)}
+            >
+              <RefreshCw size={16} className={liveSearch.status === 'loading' ? 'animate-spin' : ''} />
+              {liveSearch.status === 'loading' ? 'Extracting...' : 'Run live extraction'}
+            </button>
             <button
               className="rounded-md border border-line bg-panel px-3 py-2 text-sm text-muted transition hover:border-primary hover:text-ink"
               onClick={() => setFilters({ ...defaultFilters, scoreMin: 80 })}
@@ -340,16 +793,62 @@ function JobDiscoveryPage() {
             </button>
           </div>
         </div>
+
+        <div className="mb-4 rounded-md border border-line bg-panel/80 p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/15 text-primary">
+                <Globe2 size={18} />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-ink">Live source status</p>
+                <p className="mt-1 text-xs leading-5 text-muted">
+                  Using {activeCv.skills.slice(0, 5).map((skill) => skill.skillName).join(', ') || 'your profile'}.
+                  {lastLiveSearchAt
+                    ? ` Last extracted ${formatDistanceToNowStrict(new Date(lastLiveSearchAt), { addSuffix: true })}.`
+                    : ' Run extraction to load real listings into your workspace.'}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(liveJobSources.length ? liveJobSources : [{ name: 'Ready', count: scoredJobs.length, ok: true }]).map((source) => (
+                <span
+                  key={source.name}
+                  className={`rounded-md border px-2 py-1 text-xs ${
+                    source.ok ? 'border-success/30 bg-success/10 text-success' : 'border-danger/30 bg-danger/10 text-danger'
+                  }`}
+                  title={source.error}
+                >
+                  {source.name}: {source.count}
+                </span>
+              ))}
+            </div>
+          </div>
+          {liveSearch.message ? (
+            <p className={`mt-3 text-xs ${liveSearch.status === 'error' ? 'text-danger' : 'text-muted'}`}>
+              {liveSearch.message}
+            </p>
+          ) : null}
+        </div>
+
         <div className="space-y-4">
-          {filteredJobs.map((scoredJob) => (
-            <JobCard
-              key={scoredJob.job.id}
-              scoredJob={scoredJob}
-              isActive={selected?.job.id === scoredJob.job.id}
-              onSelect={() => setSelectedJob(scoredJob.job.id)}
-              onToggleSave={() => toggleSave(scoredJob.job.id)}
-            />
-          ))}
+          {filteredJobs.length ? (
+            filteredJobs.map((scoredJob) => (
+              <JobCard
+                key={scoredJob.job.id}
+                scoredJob={scoredJob}
+                isActive={selected?.job.id === scoredJob.job.id}
+                onSelect={() => setSelectedJob(scoredJob.job.id)}
+                onToggleSave={() => toggleSave(scoredJob.job.id)}
+              />
+            ))
+          ) : (
+            <div className="rounded-md border border-line bg-panel/80 p-8 text-center">
+              <Search className="mx-auto text-primary" size={28} />
+              <p className="mt-3 font-semibold text-ink">No matching jobs in the current filters</p>
+              <p className="mt-1 text-sm text-muted">Run live extraction or reset filters to refresh the feed.</p>
+            </div>
+          )}
         </div>
       </section>
 
@@ -370,10 +869,79 @@ function CvHubPage() {
   const activeCv = useJobmatchStore((state) => state.activeCv)
   const activateCv = useJobmatchStore((state) => state.activateCv)
   const addParsedCv = useJobmatchStore((state) => state.addParsedCv)
+  const addManualSkills = useJobmatchStore((state) => state.addManualSkills)
+  const setActiveExperience = useJobmatchStore((state) => state.setActiveExperience)
+  const replaceActiveExperience = useJobmatchStore((state) => state.replaceActiveExperience)
+  const updateProfile = useJobmatchStore((state) => state.updateProfile)
+  const liveSearch = useLiveJobSearch()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [parseStatus, setParseStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
   const [parseMessage, setParseMessage] = useState('')
   const [lastParsedCv, setLastParsedCv] = useState<ParsedCvPayload | null>(null)
+  const [targetRole, setTargetRole] = useState(profile.targetRole)
+  const [location, setLocation] = useState(profile.location)
+  const [preferredRemote, setPreferredRemote] = useState(profile.preferredRemote)
+  const [manualSkills, setManualSkills] = useState('')
+  const [manualYears, setManualYears] = useState(String(activeCv.totalYearsExperience || 1))
+  const [profileMessage, setProfileMessage] = useState('')
+  const [experienceDrafts, setExperienceDrafts] = useState<CvExperience[]>(activeCv.experience)
+
+  useEffect(() => {
+    setTargetRole(profile.targetRole)
+    setLocation(profile.location)
+    setPreferredRemote(profile.preferredRemote)
+  }, [profile.targetRole, profile.location, profile.preferredRemote])
+
+  useEffect(() => {
+    setManualYears(String(activeCv.totalYearsExperience || 0))
+    setExperienceDrafts(activeCv.experience)
+  }, [activeCv.id, activeCv.totalYearsExperience, activeCv.experience])
+
+  const saveProfileSignal = () => {
+    const years = Math.max(0, Number(manualYears) || 0)
+    updateProfile({
+      targetRole: targetRole.trim() || profile.targetRole,
+      location: location.trim() || profile.location,
+      preferredRemote,
+    })
+    setActiveExperience(years)
+
+    const skills = manualSkills
+      .split(',')
+      .map((skill) => skill.trim())
+      .filter(Boolean)
+
+    if (skills.length) {
+      addManualSkills(skills, years)
+      setManualSkills('')
+    }
+
+    setProfileMessage(
+      skills.length
+        ? `Added ${skills.length} manual skill${skills.length === 1 ? '' : 's'} and saved ${years} years experience.`
+        : `Saved profile signal with ${years} years experience.`,
+    )
+  }
+
+  const searchFromCv = () => {
+    saveProfileSignal()
+    void liveSearch.runLiveSearch(true)
+  }
+
+  const saveExperienceDrafts = () => {
+    const cleaned = experienceDrafts
+      .map((item) => ({
+        ...item,
+        title: item.title.trim() || 'Role',
+        company: item.company.trim() || 'Company',
+        totalMonths: calculateExperienceMonths(item),
+      }))
+      .filter((item) => item.startDate)
+    const totalYears = Number((cleaned.reduce((total, item) => total + item.totalMonths, 0) / 12).toFixed(1))
+    replaceActiveExperience(cleaned, totalYears)
+    setManualYears(String(totalYears))
+    setProfileMessage(`Saved ${cleaned.length} experience row${cleaned.length === 1 ? '' : 's'} and updated total experience to ${totalYears} years.`)
+  }
 
   const handleCvUpload = async (file: File) => {
     setParseStatus('uploading')
@@ -398,6 +966,8 @@ function CvHubPage() {
       setParseMessage(
         `Parsed ${payload.cv.skills.length} skills and ${payload.cv.totalYearsExperience} years of experience.`,
       )
+      setManualYears(String(payload.cv.totalYearsExperience || Number(manualYears) || 1))
+      void liveSearch.runLiveSearch(false)
     } catch (error) {
       setParseStatus('error')
       setParseMessage(error instanceof Error ? error.message : 'CV parsing failed.')
@@ -473,28 +1043,125 @@ function CvHubPage() {
           </div>
         </div>
 
-        <div className="panel p-5">
-          <h2 className="text-lg font-semibold text-ink">CV versions</h2>
-          <div className="mt-4 space-y-3">
-            {cvs.map((cv) => (
+        <div className="space-y-6">
+          <div className="panel p-5">
+            <div className="mb-5 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-success/15 text-success">
+                <Target size={20} />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-ink">Candidate signal</h2>
+                <p className="text-sm text-muted">Tune the skills and experience used for live extraction.</p>
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-xs font-medium uppercase text-muted">
+                Target role
+                <input
+                  className="control mt-2 h-11 w-full rounded-md px-3 text-sm normal-case"
+                  value={targetRole}
+                  onChange={(event) => setTargetRole(event.target.value)}
+                />
+              </label>
+              <label className="text-xs font-medium uppercase text-muted">
+                Location
+                <input
+                  className="control mt-2 h-11 w-full rounded-md px-3 text-sm normal-case"
+                  value={location}
+                  onChange={(event) => setLocation(event.target.value)}
+                />
+              </label>
+              <label className="text-xs font-medium uppercase text-muted">
+                Experience
+                <select
+                  className="control mt-2 h-11 w-full rounded-md px-3 text-sm normal-case"
+                  value={manualYears}
+                  onChange={(event) => setManualYears(event.target.value)}
+                >
+                  {[0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15].map((years) => (
+                    <option key={years} value={years}>
+                      {years} {years === 1 ? 'year' : 'years'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex min-h-11 items-center gap-3 rounded-md border border-line bg-bg/60 px-3 text-sm text-ink sm:mt-6">
+                <input
+                  type="checkbox"
+                  checked={preferredRemote}
+                  onChange={(event) => setPreferredRemote(event.target.checked)}
+                />
+                Remote preferred
+              </label>
+            </div>
+            <label className="mt-4 block text-xs font-medium uppercase text-muted">
+              Manual skills
+              <textarea
+                className="control mt-2 min-h-24 w-full rounded-md px-3 py-3 text-sm normal-case"
+                placeholder="React, TypeScript, Node.js, PostgreSQL"
+                value={manualSkills}
+                onChange={(event) => setManualSkills(event.target.value)}
+              />
+            </label>
+            <div className="mt-4 flex flex-wrap gap-2">
               <button
-                key={cv.id}
-                className={`w-full border p-4 text-left transition ${
-                  cv.isActive ? 'border-primary bg-primary/10' : 'border-line bg-bg/60 hover:border-primary'
-                }`}
-                onClick={() => activateCv(cv.id)}
+                className="inline-flex items-center gap-2 rounded-md border border-line bg-bg px-4 py-2 text-sm font-semibold text-ink transition hover:border-primary"
+                onClick={saveProfileSignal}
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold text-ink">{cv.label}</p>
-                    <p className="mt-1 text-xs text-muted">
-                      v{cv.version} · {cv.parseStatus} · {cv.skills.length} skills
-                    </p>
-                  </div>
-                  {cv.isActive ? <span className="rounded-md bg-success/15 px-2 py-1 text-xs text-success">Active</span> : null}
-                </div>
+                <Plus size={16} />
+                Save signal
               </button>
+              <button
+                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={liveSearch.status === 'loading'}
+                onClick={searchFromCv}
+              >
+                <Rocket size={16} />
+                {liveSearch.status === 'loading' ? 'Searching...' : 'Search live jobs'}
+              </button>
+            </div>
+            {[profileMessage, liveSearch.message].filter(Boolean).map((message) => (
+              <p
+                key={message}
+                className={`mt-3 text-xs ${liveSearch.status === 'error' && message === liveSearch.message ? 'text-danger' : 'text-muted'}`}
+              >
+                {message}
+              </p>
             ))}
+          </div>
+
+          <div className="panel p-5">
+            <h2 className="text-lg font-semibold text-ink">CV versions</h2>
+            <div className="mt-4 space-y-3">
+              {cvs.length ? (
+                cvs.map((cv) => (
+                  <button
+                    key={cv.id}
+                    className={`w-full rounded-md border p-4 text-left transition ${
+                      cv.isActive ? 'border-primary bg-primary/10' : 'border-line bg-bg/60 hover:border-primary'
+                    }`}
+                    onClick={() => {
+                      activateCv(cv.id)
+                      setManualYears(String(cv.totalYearsExperience || 1))
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-ink">{cv.label}</p>
+                        <p className="mt-1 text-xs text-muted">
+                          v{cv.version} · {cv.parseStatus} · {cv.skills.length} skills
+                        </p>
+                      </div>
+                      {cv.isActive ? <span className="rounded-md bg-success/15 px-2 py-1 text-xs text-success">Active</span> : null}
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <p className="rounded-md border border-line bg-bg/60 p-4 text-sm text-muted">
+                  No CV uploaded yet. Upload a CV or save manual skills to create your first profile signal.
+                </p>
+              )}
+            </div>
           </div>
         </div>
       </section>
@@ -507,36 +1174,30 @@ function CvHubPage() {
           </div>
         ) : null}
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {activeCv.skills.map((skill) => (
-            <div key={skill.skillName} className="rounded-md border border-line bg-bg/60 p-4">
-              <p className="font-semibold text-ink">{skill.skillName}</p>
-              <p className="mt-1 text-xs text-muted">
-                {skill.skillType} · {skill.yearsUsed} years · {skill.confidence}
-              </p>
-            </div>
-          ))}
+          {activeCv.skills.length ? (
+            activeCv.skills.map((skill) => (
+              <div key={skill.skillName} className="rounded-md border border-line bg-bg/60 p-4">
+                <p className="font-semibold text-ink">{skill.skillName}</p>
+                <p className="mt-1 text-xs text-muted">
+                  {skill.skillType} · {skill.yearsUsed} years · {skill.confidence}
+                </p>
+              </div>
+            ))
+          ) : (
+            <p className="rounded-md border border-line bg-bg/60 p-4 text-sm text-muted sm:col-span-2 xl:col-span-4">
+              No skills yet. Upload a CV or add comma-separated skills in Candidate signal.
+            </p>
+          )}
         </div>
       </section>
 
-      {lastParsedCv ? (
-        <section className="grid gap-6 xl:grid-cols-2">
-          <div className="panel p-5">
-            <h2 className="text-lg font-semibold text-ink">Parsed experience</h2>
-            <div className="mt-4 space-y-3">
-              {lastParsedCv.experience.length ? (
-                lastParsedCv.experience.map((item) => (
-                  <div key={`${item.title}-${item.company}-${item.startDate}`} className="rounded-md border border-line bg-bg/60 p-4">
-                    <p className="font-semibold text-ink">{item.title}</p>
-                    <p className="mt-1 text-sm text-muted">
-                      {item.company} · {item.startDate} to {item.endDate ?? 'Present'} · {Math.round(item.totalMonths / 12)}y
-                    </p>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted">No dated experience blocks were detected.</p>
-              )}
-            </div>
-          </div>
+      <section className="grid gap-6 xl:grid-cols-2">
+        <ExperienceEditor
+          drafts={experienceDrafts}
+          onChange={setExperienceDrafts}
+          onSave={saveExperienceDrafts}
+        />
+        {lastParsedCv ? (
           <div className="panel p-5">
             <h2 className="text-lg font-semibold text-ink">Education and certificates</h2>
             <div className="mt-4 space-y-3">
@@ -551,10 +1212,156 @@ function CvHubPage() {
               )}
             </div>
           </div>
-        </section>
-      ) : null}
+        ) : (
+          <div className="panel p-5">
+            <h2 className="text-lg font-semibold text-ink">Education and certificates</h2>
+            <p className="mt-4 text-sm leading-6 text-muted">
+              Upload a CV to extract education and certificates for this user account.
+            </p>
+          </div>
+        )}
+      </section>
     </div>
   )
+}
+
+function ExperienceEditor({
+  drafts,
+  onChange,
+  onSave,
+}: {
+  drafts: CvExperience[]
+  onChange: (drafts: CvExperience[]) => void
+  onSave: () => void
+}) {
+  const updateDraft = (index: number, patch: Partial<CvExperience>) => {
+    onChange(drafts.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)))
+  }
+
+  const addDraft = () => {
+    onChange([
+      ...drafts,
+      {
+        title: '',
+        company: '',
+        startDate: '',
+        endDate: null,
+        isCurrent: false,
+        totalMonths: 0,
+      },
+    ])
+  }
+
+  const removeDraft = (index: number) => {
+    onChange(drafts.filter((_item, itemIndex) => itemIndex !== index))
+  }
+
+  return (
+    <div className="panel p-5">
+      <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+        <div>
+          <h2 className="text-lg font-semibold text-ink">Editable experience</h2>
+          <p className="text-sm text-muted">Correct the rows extracted from your CV before matching jobs.</p>
+        </div>
+        <button
+          className="inline-flex items-center gap-2 rounded-md border border-line bg-bg px-3 py-2 text-sm font-semibold text-ink transition hover:border-primary"
+          onClick={addDraft}
+        >
+          <Plus size={16} />
+          Add row
+        </button>
+      </div>
+
+      <div className="space-y-3">
+        {drafts.length ? (
+          drafts.map((item, index) => (
+            <div key={`${item.title}-${item.company}-${index}`} className="rounded-md border border-line bg-bg/60 p-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="text-xs font-medium uppercase text-muted">
+                  Title
+                  <input
+                    className="control mt-2 h-10 w-full rounded-md px-3 text-sm normal-case"
+                    value={item.title}
+                    onChange={(event) => updateDraft(index, { title: event.target.value })}
+                  />
+                </label>
+                <label className="text-xs font-medium uppercase text-muted">
+                  Company
+                  <input
+                    className="control mt-2 h-10 w-full rounded-md px-3 text-sm normal-case"
+                    value={item.company}
+                    onChange={(event) => updateDraft(index, { company: event.target.value })}
+                  />
+                </label>
+                <label className="text-xs font-medium uppercase text-muted">
+                  Start
+                  <input
+                    className="control mt-2 h-10 w-full rounded-md px-3 text-sm normal-case"
+                    type="month"
+                    value={toMonthValue(item.startDate)}
+                    onChange={(event) => updateDraft(index, { startDate: event.target.value })}
+                  />
+                </label>
+                <label className="text-xs font-medium uppercase text-muted">
+                  End
+                  <input
+                    className="control mt-2 h-10 w-full rounded-md px-3 text-sm normal-case disabled:opacity-50"
+                    type="month"
+                    disabled={item.isCurrent}
+                    value={item.isCurrent ? '' : toMonthValue(item.endDate || '')}
+                    onChange={(event) => updateDraft(index, { endDate: event.target.value || null })}
+                  />
+                </label>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                <label className="flex items-center gap-2 text-sm text-muted">
+                  <input
+                    type="checkbox"
+                    checked={item.isCurrent}
+                    onChange={(event) =>
+                      updateDraft(index, { isCurrent: event.target.checked, endDate: event.target.checked ? null : item.endDate })
+                    }
+                  />
+                  Current role
+                </label>
+                <button className="text-sm text-danger hover:text-danger/80" onClick={() => removeDraft(index)}>
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))
+        ) : (
+          <p className="rounded-md border border-line bg-bg/60 p-4 text-sm text-muted">
+            No experience rows yet. Upload a CV or add one manually.
+          </p>
+        )}
+      </div>
+
+      <button
+        className="mt-4 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-white transition hover:bg-primary/90"
+        onClick={onSave}
+      >
+        <CheckCircle2 size={16} />
+        Save experience
+      </button>
+    </div>
+  )
+}
+
+function calculateExperienceMonths(item: CvExperience) {
+  if (!item.startDate) return 0
+  const start = monthDate(item.startDate)
+  const end = item.isCurrent || !item.endDate ? new Date() : monthDate(item.endDate)
+  return Math.max(0, (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth() + 1)
+}
+
+function monthDate(value: string) {
+  const [year, month = 1] = value.slice(0, 7).split('-').map(Number)
+  return new Date(year, month - 1, 1)
+}
+
+function toMonthValue(value: string) {
+  return value ? value.slice(0, 7) : ''
 }
 
 function TrackerPage() {
@@ -630,66 +1437,57 @@ function AlertsPage() {
 }
 
 function AdminPage() {
-  const sourceTotals = staticDashboardData.sources.reduce(
-    (totals, source) => ({
-      fetched: totals.fetched + source.jobsFetched,
-      fresh: totals.fresh + source.jobsNew,
-      failures: totals.failures + source.consecutiveFailures,
-    }),
-    { fetched: 0, fresh: 0, failures: 0 },
-  )
+  const liveJobSources = useJobmatchStore((state) => state.liveJobSources)
+  const jobs = useJobmatchStore((state) => state.jobs)
+  const fetched = liveJobSources.reduce((total, source) => total + source.count, 0)
+  const failures = liveJobSources.filter((source) => !source.ok).length
 
   return (
     <div className="space-y-6">
       <section className="grid gap-4 md:grid-cols-3">
-        <StatCard icon={<DatabaseZap size={20} />} label="Fetched last run" value={sourceTotals.fetched} />
-        <StatCard icon={<Sparkles size={20} />} label="New jobs" value={sourceTotals.fresh} />
-        <StatCard icon={<ShieldCheck size={20} />} label="Source failures" value={sourceTotals.failures} />
+        <StatCard icon={<DatabaseZap size={20} />} label="Fetched last run" value={fetched} />
+        <StatCard icon={<Sparkles size={20} />} label="Workspace jobs" value={jobs.length} />
+        <StatCard icon={<ShieldCheck size={20} />} label="Source failures" value={failures} />
       </section>
 
       <section className="panel overflow-hidden">
         <div className="border-b border-line p-5">
           <h2 className="text-lg font-semibold text-ink">Job sources</h2>
-          <p className="text-sm text-muted">Apify actors, direct APIs, RSS feeds, and SerpAPI are represented here.</p>
+          <p className="text-sm text-muted">This table reflects the latest live extraction run for your workspace.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left text-sm">
             <thead className="bg-bg/70 text-xs uppercase text-muted">
               <tr>
                 <th className="px-5 py-3">Source</th>
-                <th className="px-5 py-3">Method</th>
-                <th className="px-5 py-3">Schedule</th>
                 <th className="px-5 py-3">Status</th>
                 <th className="px-5 py-3">Fetched</th>
-                <th className="px-5 py-3">New</th>
+                <th className="px-5 py-3">Message</th>
               </tr>
             </thead>
             <tbody>
-              {staticDashboardData.sources.map((source) => (
-                <tr key={source.id} className="border-t border-line">
-                  <td className="px-5 py-4">
-                    <p className="font-semibold text-ink">{source.name}</p>
-                    <p className="text-xs text-muted">{source.url}</p>
+              {liveJobSources.length ? (
+                liveJobSources.map((source) => (
+                  <tr key={source.name} className="border-t border-line">
+                    <td className="px-5 py-4">
+                      <p className="font-semibold text-ink">{source.name}</p>
+                    </td>
+                    <td className="px-5 py-4">
+                      <span className={`rounded-md px-2 py-1 text-xs ${source.ok ? 'bg-success/15 text-success' : 'bg-danger/15 text-danger'}`}>
+                        {source.ok ? 'success' : 'failed'}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4 font-mono text-muted">{source.count}</td>
+                    <td className="px-5 py-4 text-muted">{source.error || 'OK'}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr className="border-t border-line">
+                  <td className="px-5 py-6 text-sm text-muted" colSpan={4}>
+                    Run live extraction from Discovery or CV Hub to populate source status.
                   </td>
-                  <td className="px-5 py-4 text-muted">{source.method}</td>
-                  <td className="px-5 py-4 font-mono text-xs text-muted">{source.cronExpression}</td>
-                  <td className="px-5 py-4">
-                    <span
-                      className={`rounded-md px-2 py-1 text-xs ${
-                        source.lastRunStatus === 'success'
-                          ? 'bg-success/15 text-success'
-                          : source.lastRunStatus === 'running'
-                            ? 'bg-warning/15 text-warning'
-                            : 'bg-danger/15 text-danger'
-                      }`}
-                    >
-                      {source.lastRunStatus}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4 font-mono text-muted">{source.jobsFetched}</td>
-                  <td className="px-5 py-4 font-mono text-muted">{source.jobsNew}</td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
@@ -697,9 +1495,9 @@ function AdminPage() {
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <HealthTile label="Database" value="Healthy" icon={<DatabaseZap size={18} />} />
-        <HealthTile label="Storage" value="4.2GB / 100GB" icon={<FileText size={18} />} />
-        <HealthTile label="Claude quota" value="34%" icon={<Sparkles size={18} />} />
-        <HealthTile label="Apify runs" value="2,840 today" icon={<PanelLeft size={18} />} />
+        <HealthTile label="Auth" value="Supabase session" icon={<UserRound size={18} />} />
+        <HealthTile label="Local parser" value="PDF/DOCX/TXT" icon={<Sparkles size={18} />} />
+        <HealthTile label="Live sources" value={`${liveJobSources.length || 3} configured`} icon={<Globe2 size={18} />} />
       </section>
     </div>
   )
