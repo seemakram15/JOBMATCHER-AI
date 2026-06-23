@@ -7,14 +7,44 @@
 @layer base {
   :root {
     color-scheme: dark;
+    --color-bg: 18 18 24;
+    --color-panel: 30 30 46;
+    --color-ink: 232 234 237;
+    --color-muted: 139 147 167;
+    --color-primary: 74 144 217;
+    --color-success: 76 175 112;
+    --color-warning: 255 193 7;
+    --color-danger: 239 83 80;
+    --color-cyan: 0 172 193;
+    --color-line: 45 45 58;
+    --shadow-soft: 0 0 0;
     font-family: Inter, system-ui, sans-serif;
-    background: #121218;
-    color: #e8eaed;
+    background: rgb(var(--color-bg));
+    color: rgb(var(--color-ink));
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     -webkit-text-size-adjust: 100%;
+  }
+
+  :root.light {
+    color-scheme: light;
+    --color-bg: 246 247 244;
+    --color-panel: 255 255 255;
+    --color-ink: 24 32 42;
+    --color-muted: 96 107 121;
+    --color-primary: 37 99 235;
+    --color-success: 22 163 74;
+    --color-warning: 202 138 4;
+    --color-danger: 220 38 38;
+    --color-cyan: 8 145 178;
+    --color-line: 218 224 232;
+    --shadow-soft: 82 95 127;
+  }
+
+  :root.dark {
+    color-scheme: dark;
   }
 
   * {
@@ -30,8 +60,8 @@
     min-height: 100vh;
     margin: 0;
     background:
-      linear-gradient(180deg, rgba(74, 144, 217, 0.12), rgba(18, 18, 24, 0) 260px),
-      #121218;
+      linear-gradient(180deg, rgb(var(--color-primary) / 0.13), rgb(var(--color-bg) / 0) 280px),
+      rgb(var(--color-bg));
   }
 
   button,
@@ -39,6 +69,12 @@
   select,
   textarea {
     font: inherit;
+  }
+
+  input,
+  select,
+  textarea {
+    color: rgb(var(--color-ink));
   }
 
   button:focus-visible,
@@ -57,14 +93,51 @@
 
 @layer components {
   .panel {
-    @apply border border-line bg-panel/85 shadow-soft backdrop-blur;
+    @apply rounded-md border border-line bg-panel/90 shadow-soft backdrop-blur;
   }
 
   .control {
-    @apply border border-line bg-bg/80 text-ink placeholder:text-muted;
+    @apply border border-line bg-bg/80 text-ink placeholder:text-muted transition;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
+  }
+
+  .control:hover {
+    border-color: rgb(var(--color-primary) / 0.55);
+  }
+
+  .control:focus {
+    border-color: rgb(var(--color-primary));
+    box-shadow: 0 0 0 3px rgb(var(--color-primary) / 0.16);
+    outline: none;
+  }
+
+  .field-label {
+    @apply block text-xs font-semibold uppercase tracking-wide text-muted;
+  }
+
+  .field-shell {
+    @apply mt-2 flex min-h-11 items-center gap-2 rounded-md border border-line bg-bg/80 px-3 transition;
+  }
+
+  .field-shell:focus-within {
+    border-color: rgb(var(--color-primary));
+    box-shadow: 0 0 0 3px rgb(var(--color-primary) / 0.16);
+  }
+
+  .field-shell input,
+  .field-shell select {
+    @apply h-10 w-full bg-transparent text-sm text-ink outline-none placeholder:text-muted;
   }
 
   .icon-button {
-    @apply inline-flex h-9 w-9 items-center justify-center rounded-md border border-line bg-panel text-muted transition hover:border-primary hover:text-ink;
+    @apply inline-flex h-9 w-9 items-center justify-center rounded-md border border-line bg-panel text-muted transition hover:border-primary hover:bg-primary/10 hover:text-ink;
+  }
+
+  .primary-button {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .secondary-button {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-line bg-panel px-4 py-2 text-sm font-semibold text-ink transition hover:border-primary hover:bg-primary/10;
   }
 }

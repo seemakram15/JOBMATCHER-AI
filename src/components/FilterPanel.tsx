@@ -1,4 +1,4 @@
-import { RotateCcw, Search, SlidersHorizontal } from 'lucide-react'
+import { BriefcaseBusiness, DollarSign, Layers3, RotateCcw, Search, SlidersHorizontal } from 'lucide-react'
 import type { ExperienceLevel, JobFilters, JobType, WorkMode } from '../types'
 
 interface FilterPanelProps {
@@ -35,24 +35,28 @@ function toggleValue<T extends string>(values: T[], value: T) {
 export function FilterPanel({ filters, sources, onChange, onReset }: FilterPanelProps) {
   return (
     <aside className="panel p-4 lg:sticky lg:top-4">
-      <div className="mb-4 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm font-semibold text-ink">
-          <SlidersHorizontal size={16} />
-          Filters
+      <div className="mb-5 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/15 text-primary">
+            <SlidersHorizontal size={17} />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-ink">Filters</p>
+            <p className="text-xs text-muted">Narrow by fit</p>
+          </div>
         </div>
         <button className="icon-button" onClick={onReset} aria-label="Reset filters" title="Reset filters">
           <RotateCcw size={15} />
         </button>
       </div>
 
-      <label className="block text-xs font-medium uppercase text-muted" htmlFor="search">
+      <label className="field-label" htmlFor="search">
         Search
       </label>
-      <div className="mt-2 flex items-center gap-2 rounded-md border border-line bg-bg/70 px-3">
+      <div className="field-shell">
         <Search size={15} className="text-muted" />
         <input
           id="search"
-          className="h-10 w-full bg-transparent text-sm text-ink outline-none placeholder:text-muted"
           value={filters.search}
           onChange={(event) => onChange({ search: event.target.value })}
           placeholder="Title, company, skill"
@@ -76,9 +80,28 @@ export function FilterPanel({ filters, sources, onChange, onReset }: FilterPanel
         />
       </div>
 
-      <FilterGroup title="Work mode">
+      <div className="mt-5">
+        <div className="mb-2 flex items-center justify-between text-xs font-medium uppercase text-muted">
+          <span>Minimum salary</span>
+          <span className="font-mono text-primary">{filters.salaryMin ? `$${Math.round(filters.salaryMin / 1000)}k` : 'Any'}</span>
+        </div>
+        <div className="field-shell">
+          <DollarSign size={15} className="text-muted" />
+          <input
+            type="number"
+            min={0}
+            step={5000}
+            value={filters.salaryMin || ''}
+            onChange={(event) => onChange({ salaryMin: Math.max(0, Number(event.target.value) || 0) })}
+            placeholder="Any salary"
+            aria-label="Minimum salary"
+          />
+        </div>
+      </div>
+
+      <FilterGroup title="Work mode" icon={<Layers3 size={14} />}>
         {workModes.map((option) => (
-          <label key={option.value} className="flex items-center gap-2 text-sm text-ink">
+          <label key={option.value} className="flex items-center gap-2 rounded-md border border-line bg-bg/55 px-3 py-2 text-sm text-ink transition hover:border-primary/60">
             <input
               type="checkbox"
               className="accent-primary"
@@ -90,9 +113,9 @@ export function FilterPanel({ filters, sources, onChange, onReset }: FilterPanel
         ))}
       </FilterGroup>
 
-      <FilterGroup title="Job type">
+      <FilterGroup title="Job type" icon={<BriefcaseBusiness size={14} />}>
         {jobTypes.map((option) => (
-          <label key={option.value} className="flex items-center gap-2 text-sm text-ink">
+          <label key={option.value} className="flex items-center gap-2 rounded-md border border-line bg-bg/55 px-3 py-2 text-sm text-ink transition hover:border-primary/60">
             <input
               type="checkbox"
               className="accent-primary"
@@ -104,7 +127,7 @@ export function FilterPanel({ filters, sources, onChange, onReset }: FilterPanel
         ))}
       </FilterGroup>
 
-      <FilterGroup title="Level">
+      <FilterGroup title="Level" icon={<SlidersHorizontal size={14} />}>
         <div className="grid grid-cols-2 gap-2">
           {levels.map((option) => (
             <button
@@ -122,7 +145,7 @@ export function FilterPanel({ filters, sources, onChange, onReset }: FilterPanel
         </div>
       </FilterGroup>
 
-      <FilterGroup title="Source">
+      <FilterGroup title="Source" icon={<Search size={14} />}>
         <select
           className="control h-10 w-full rounded-md px-3 text-sm"
           value={filters.sources[0] ?? ''}
@@ -139,7 +162,7 @@ export function FilterPanel({ filters, sources, onChange, onReset }: FilterPanel
       </FilterGroup>
 
       <div className="mt-5 grid grid-cols-2 gap-3">
-        <label className="text-xs font-medium uppercase text-muted">
+        <label className="field-label">
           Date
           <select
             className="control mt-2 h-10 w-full rounded-md px-2 text-sm normal-case"
@@ -153,7 +176,7 @@ export function FilterPanel({ filters, sources, onChange, onReset }: FilterPanel
             <option value="month">Last month</option>
           </select>
         </label>
-        <label className="text-xs font-medium uppercase text-muted">
+        <label className="field-label">
           Sort
           <select
             className="control mt-2 h-10 w-full rounded-md px-2 text-sm normal-case"
@@ -171,10 +194,13 @@ export function FilterPanel({ filters, sources, onChange, onReset }: FilterPanel
   )
 }
 
-function FilterGroup({ title, children }: { title: string; children: React.ReactNode }) {
+function FilterGroup({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="mt-5">
-      <p className="mb-3 text-xs font-medium uppercase text-muted">{title}</p>
+      <p className="mb-3 flex items-center gap-2 text-xs font-medium uppercase text-muted">
+        {icon}
+        {title}
+      </p>
       <div className="space-y-2">{children}</div>
     </div>
   )

@@ -11,11 +11,15 @@ import {
   FileText,
   FileUp,
   Globe2,
+  KeyRound,
   LayoutDashboard,
   LockKeyhole,
   LogIn,
   LogOut,
+  Mail,
+  MapPin,
   Menu,
+  Moon,
   Plus,
   Radio,
   RefreshCw,
@@ -24,6 +28,7 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  Sun,
   Target,
   UploadCloud,
   UserPlus,
@@ -50,7 +55,7 @@ import { KanbanBoard } from './components/KanbanBoard'
 import { filterAndSortJobs, scoreJobs } from './lib/scoring'
 import { defaultFilters } from './lib/defaults'
 import { useJobmatchStore } from './store/useJobmatchStore'
-import type { Application, CvExperience, Job, LiveJobSourceResult, ParsedCvPayload, ScoredJob } from './types'
+import type { Application, Job, LiveJobSourceResult, ParsedCvPayload, ScoredJob } from './types'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -61,6 +66,10 @@ const navItems = [
   { to: '/admin', label: 'Admin', icon: ShieldCheck },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
+
+const brandTagline = 'Upload. Match. Apply smarter.'
+
+type ThemeMode = 'dark' | 'light'
 
 function App() {
   const location = useLocation()
@@ -100,6 +109,61 @@ function App() {
   )
 }
 
+function useThemeMode() {
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    if (typeof window === 'undefined') return 'dark'
+    const saved = window.localStorage.getItem('jobmatcher-theme')
+    return saved === 'light' ? 'light' : 'dark'
+  })
+
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.toggle('light', theme === 'light')
+    root.classList.toggle('dark', theme === 'dark')
+    window.localStorage.setItem('jobmatcher-theme', theme)
+  }, [theme])
+
+  return {
+    theme,
+    toggleTheme: () => setTheme((current) => (current === 'dark' ? 'light' : 'dark')),
+  }
+}
+
+function ThemeToggle() {
+  const { theme, toggleTheme } = useThemeMode()
+  const isLight = theme === 'light'
+
+  return (
+    <button
+      className="icon-button"
+      onClick={toggleTheme}
+      aria-label={isLight ? 'Switch to dark theme' : 'Switch to light theme'}
+      title={isLight ? 'Dark theme' : 'Light theme'}
+    >
+      {isLight ? <Moon size={17} /> : <Sun size={17} />}
+    </button>
+  )
+}
+
+function BrandLogo({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary text-white shadow-soft">
+        <BriefcaseBusiness size={22} />
+        <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-success text-[9px] font-black text-white">
+          %
+        </span>
+      </div>
+      {!compact ? (
+        <div>
+          <p className="text-lg font-extrabold leading-5 text-ink">Jobmatcher</p>
+          <p className="text-xs font-medium text-muted">{brandTagline}</p>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 function LandingPage() {
   const featureCards = [
     {
@@ -130,16 +194,9 @@ function LandingPage() {
         <div className="absolute inset-0 bg-gradient-to-br from-bg via-bg/82 to-bg/30" />
 
         <header className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-5 py-5 md:px-8">
-          <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-md bg-primary text-white shadow-soft">
-              <Sparkles size={22} />
-            </div>
-            <div>
-              <p className="text-lg font-bold">Jobmatcher</p>
-              <p className="text-xs text-muted">AI-ranked job search</p>
-            </div>
-          </div>
+          <BrandLogo />
           <div className="flex items-center gap-2">
+            <ThemeToggle />
             <NavLink
               className="inline-flex h-10 items-center gap-2 rounded-md border border-white/15 bg-white/8 px-4 text-sm font-semibold text-ink backdrop-blur transition hover:border-primary"
               to="/auth?mode=signin"
@@ -165,7 +222,7 @@ function LandingPage() {
               Find the jobs that fit your CV.
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
-              Upload your CV, add skills manually, fetch real listings, and track every application without a messy spreadsheet.
+              {brandTagline} Upload your CV, add skills manually, fetch real listings, and track every application without a messy spreadsheet.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <NavLink
@@ -276,13 +333,7 @@ function AuthPage() {
         <div className="absolute inset-0 bg-gradient-to-br from-bg via-bg/80 to-bg/20" />
         <div className="relative z-10 flex h-full flex-col justify-between p-10">
           <NavLink className="flex items-center gap-3" to="/">
-            <div className="flex h-11 w-11 items-center justify-center rounded-md bg-primary text-white shadow-soft">
-              <Sparkles size={22} />
-            </div>
-            <div>
-              <p className="text-lg font-bold">Jobmatcher</p>
-              <p className="text-xs text-muted">Private user workspace</p>
-            </div>
+            <BrandLogo />
           </NavLink>
           <div>
             <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
@@ -300,17 +351,18 @@ function AuthPage() {
         <div className="w-full max-w-md">
           <div className="mb-8 lg:hidden">
             <NavLink className="flex items-center gap-3" to="/">
-              <div className="flex h-11 w-11 items-center justify-center rounded-md bg-primary text-white shadow-soft">
-                <Sparkles size={22} />
-              </div>
-              <div>
-                <p className="text-lg font-bold">Jobmatcher</p>
-                <p className="text-xs text-muted">AI-ranked job search</p>
-              </div>
+              <BrandLogo />
             </NavLink>
           </div>
 
           <div className="panel p-6">
+            <div className="mb-5 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-ink">{mode === 'signup' ? 'Create your workspace' : 'Welcome back'}</p>
+                <p className="text-xs text-muted">{brandTagline}</p>
+              </div>
+              <ThemeToggle />
+            </div>
             <div className="mb-6 flex rounded-md border border-line bg-bg/70 p-1">
               {(['signin', 'signup'] as const).map((item) => (
                 <button
@@ -327,41 +379,45 @@ function AuthPage() {
 
             <form className="space-y-4" onSubmit={submit}>
               {mode === 'signup' ? (
-                <label className="block text-xs font-medium uppercase text-muted">
+                <label className="field-label">
                   Name
-                  <input
-                    className="control mt-2 h-11 w-full rounded-md px-3 text-sm normal-case"
-                    required
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                  />
+                  <span className="field-shell normal-case">
+                    <UserRound size={16} className="text-muted" />
+                    <input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" />
+                  </span>
                 </label>
               ) : null}
-              <label className="block text-xs font-medium uppercase text-muted">
+              <label className="field-label">
                 Email
-                <input
-                  className="control mt-2 h-11 w-full rounded-md px-3 text-sm normal-case"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                />
+                <span className="field-shell normal-case">
+                  <Mail size={16} className="text-muted" />
+                  <input
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="you@example.com"
+                  />
+                </span>
               </label>
-              <label className="block text-xs font-medium uppercase text-muted">
+              <label className="field-label">
                 Password
-                <input
-                  className="control mt-2 h-11 w-full rounded-md px-3 text-sm normal-case"
-                  type="password"
-                  autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-                  minLength={6}
-                  required
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                />
+                <span className="field-shell normal-case">
+                  <KeyRound size={16} className="text-muted" />
+                  <input
+                    type="password"
+                    autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                    minLength={6}
+                    required
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="Minimum 6 characters"
+                  />
+                </span>
               </label>
               <button
-                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="primary-button h-11 w-full"
                 disabled={authStatus === 'loading'}
               >
                 {mode === 'signup' ? <UserPlus size={16} /> : <LogIn size={16} />}
@@ -397,8 +453,13 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const profile = useJobmatchStore((state) => state.profile)
   const notifications = useJobmatchStore((state) => state.notifications)
   const signOut = useJobmatchStore((state) => state.signOut)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const unread = notifications.filter((notification) => !notification.isRead).length
   const pageLabel = navItems.find((item) => item.to === location.pathname)?.label ?? 'Dashboard'
+
+  useEffect(() => {
+    setMobileNavOpen(false)
+  }, [location.pathname])
 
   return (
     <div className="min-h-screen">
@@ -409,59 +470,23 @@ function AppShell({ children }: { children: React.ReactNode }) {
         Skip to main content
       </a>
       <div className="grid min-h-screen lg:grid-cols-[260px_1fr]">
-        <aside className="hidden border-r border-line bg-panel/80 p-4 backdrop-blur lg:block">
-          <div className="mb-8 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary text-white">
-              <Sparkles size={21} />
-            </div>
-            <div>
-              <p className="text-lg font-bold text-ink">Jobmatcher</p>
-              <p className="text-xs text-muted">AI-ranked job search</p>
-            </div>
-          </div>
-          <nav className="space-y-1">
-            {navItems.map((item) => {
-              const Icon = item.icon
-              return (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={({ isActive }) =>
-                    `flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition ${
-                      isActive ? 'bg-primary/15 text-primary' : 'text-muted hover:bg-bg/70 hover:text-ink'
-                    }`
-                  }
-                >
-                  <Icon size={17} />
-                  {item.label}
-                </NavLink>
-              )
-            })}
-          </nav>
-
-          <div className="mt-8 rounded-md border border-line bg-bg/60 p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold text-ink">
-              <DatabaseZap size={16} className="text-primary" />
-              Source health
-            </div>
-            <p className="mt-2 text-xs leading-5 text-muted">
-              Live extraction reads direct job APIs and server-only search keys from local env.
-            </p>
-          </div>
+        <aside className="hidden border-r border-line bg-panel/88 p-4 backdrop-blur lg:block">
+          <WorkspaceNav />
         </aside>
 
         <div className="min-w-0">
           <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-line bg-bg/90 px-4 backdrop-blur md:px-6">
             <div className="flex items-center gap-3">
-              <button className="icon-button lg:hidden" aria-label="Open navigation" title="Navigation">
+              <button className="icon-button lg:hidden" aria-label="Open navigation" title="Navigation" onClick={() => setMobileNavOpen(true)}>
                 <Menu size={18} />
               </button>
               <div>
-                <p className="text-xs text-muted">Workspace</p>
+                <p className="text-xs font-medium text-muted">{brandTagline}</p>
                 <h1 className="text-lg font-semibold text-ink">{pageLabel}</h1>
               </div>
             </div>
             <div className="flex items-center gap-3">
+              <ThemeToggle />
               <NavLink className="icon-button relative" to="/alerts" aria-label={`${unread} unread alerts`} title="Alerts">
                 <Bell size={17} />
                 {unread ? (
@@ -484,6 +509,16 @@ function AppShell({ children }: { children: React.ReactNode }) {
               </button>
             </div>
           </header>
+          {mobileNavOpen ? (
+            <div className="fixed inset-0 z-40 bg-black/55 p-3 backdrop-blur-sm lg:hidden" onClick={() => setMobileNavOpen(false)}>
+              <aside
+                className="h-full w-full max-w-[300px] rounded-md border border-line bg-panel p-4 shadow-soft"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <WorkspaceNav />
+              </aside>
+            </div>
+          ) : null}
           <main id="main-content" className="p-4 md:p-6">
             <motion.div
               key={location.pathname}
@@ -495,6 +530,47 @@ function AppShell({ children }: { children: React.ReactNode }) {
             </motion.div>
           </main>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function WorkspaceNav() {
+  return (
+    <div className="flex h-full flex-col">
+      <div className="mb-7">
+        <BrandLogo />
+      </div>
+      <nav className="space-y-1">
+        {navItems.map((item) => {
+          const Icon = item.icon
+          return (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition ${
+                  isActive ? 'bg-primary/15 text-primary shadow-sm' : 'text-muted hover:bg-bg/75 hover:text-ink'
+                }`
+              }
+            >
+              <span className="flex h-8 w-8 items-center justify-center rounded-md border border-line bg-bg/70 transition group-hover:border-primary/50">
+                <Icon size={16} />
+              </span>
+              {item.label}
+            </NavLink>
+          )
+        })}
+      </nav>
+
+      <div className="mt-auto rounded-md border border-line bg-bg/65 p-4">
+        <div className="flex items-center gap-2 text-sm font-semibold text-ink">
+          <DatabaseZap size={16} className="text-primary" />
+          Source health
+        </div>
+        <p className="mt-2 text-xs leading-5 text-muted">
+          Live extraction uses your CV skills, role, and private server keys to keep matching focused.
+        </p>
       </div>
     </div>
   )
@@ -517,18 +593,24 @@ function useLiveJobSearch() {
 
   const runLiveSearch = async (goToJobs = false) => {
     const { profile, activeCv } = useJobmatchStore.getState()
-    const skills = activeCv.skills.map((skill) => skill.skillName).slice(0, 10)
-    const query = [profile.targetRole, ...skills.slice(0, 4)].filter(Boolean).join(' ')
+    const skills = activeCv.skills.map((skill) => skill.skillName).filter(Boolean).slice(0, 20)
+    if (!skills.length) {
+      setStatus('error')
+      setMessage('Upload a CV or add comma-separated skills before live job search.')
+      return
+    }
+
+    const query = profile.targetRole || skills.slice(0, 3).join(' ')
     const params = new URLSearchParams({
       query,
       location: profile.preferredRemote ? 'Remote' : profile.location,
       skills: skills.join(','),
       experienceYears: String(activeCv.totalYearsExperience || 0),
-      limit: '60',
+      limit: '40',
     })
 
     setStatus('loading')
-    setMessage('Fetching real jobs from live sources...')
+    setMessage('Fetching precise matches from live sources...')
 
     try {
       const response = await fetch(`/api/live-jobs?${params.toString()}`)
@@ -544,7 +626,7 @@ function useLiveJobSearch() {
 
       setLiveJobs(payload.jobs, payload.sources || [])
       setStatus('done')
-      setMessage(`Fetched ${payload.jobs.length} real jobs from live sources.`)
+      setMessage(`Fetched ${payload.jobs.length} relevant jobs matched to your skills and experience.`)
       if (goToJobs) navigate('/jobs')
     } catch (error) {
       setStatus('error')
@@ -631,7 +713,7 @@ function DashboardPage() {
             {activeCv.skills.slice(0, 6).map((skill) => (
               <div key={skill.skillName} className="flex items-center justify-between rounded-md border border-line bg-bg/50 px-3 py-2">
                 <span className="text-sm text-ink">{skill.skillName}</span>
-                <span className="font-mono text-xs text-muted">{skill.yearsUsed}y</span>
+                <span className="text-xs capitalize text-muted">{skill.confidence}</span>
               </div>
             ))}
           </div>
@@ -870,8 +952,6 @@ function CvHubPage() {
   const activateCv = useJobmatchStore((state) => state.activateCv)
   const addParsedCv = useJobmatchStore((state) => state.addParsedCv)
   const addManualSkills = useJobmatchStore((state) => state.addManualSkills)
-  const setActiveExperience = useJobmatchStore((state) => state.setActiveExperience)
-  const replaceActiveExperience = useJobmatchStore((state) => state.replaceActiveExperience)
   const updateProfile = useJobmatchStore((state) => state.updateProfile)
   const liveSearch = useLiveJobSearch()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -882,9 +962,7 @@ function CvHubPage() {
   const [location, setLocation] = useState(profile.location)
   const [preferredRemote, setPreferredRemote] = useState(profile.preferredRemote)
   const [manualSkills, setManualSkills] = useState('')
-  const [manualYears, setManualYears] = useState(String(activeCv.totalYearsExperience || 1))
   const [profileMessage, setProfileMessage] = useState('')
-  const [experienceDrafts, setExperienceDrafts] = useState<CvExperience[]>(activeCv.experience)
 
   useEffect(() => {
     setTargetRole(profile.targetRole)
@@ -892,19 +970,12 @@ function CvHubPage() {
     setPreferredRemote(profile.preferredRemote)
   }, [profile.targetRole, profile.location, profile.preferredRemote])
 
-  useEffect(() => {
-    setManualYears(String(activeCv.totalYearsExperience || 0))
-    setExperienceDrafts(activeCv.experience)
-  }, [activeCv.id, activeCv.totalYearsExperience, activeCv.experience])
-
   const saveProfileSignal = () => {
-    const years = Math.max(0, Number(manualYears) || 0)
     updateProfile({
       targetRole: targetRole.trim() || profile.targetRole,
       location: location.trim() || profile.location,
       preferredRemote,
     })
-    setActiveExperience(years)
 
     const skills = manualSkills
       .split(',')
@@ -912,35 +983,20 @@ function CvHubPage() {
       .filter(Boolean)
 
     if (skills.length) {
-      addManualSkills(skills, years)
+      addManualSkills(skills, Math.max(0, activeCv.totalYearsExperience || 0))
       setManualSkills('')
     }
 
     setProfileMessage(
       skills.length
-        ? `Added ${skills.length} manual skill${skills.length === 1 ? '' : 's'} and saved ${years} years experience.`
-        : `Saved profile signal with ${years} years experience.`,
+        ? `Added ${skills.length} manual skill${skills.length === 1 ? '' : 's'}. Experience remains ${activeCv.totalYearsExperience || 0} parsed years.`
+        : `Saved profile signal. Experience remains ${activeCv.totalYearsExperience || 0} parsed years.`,
     )
   }
 
   const searchFromCv = () => {
     saveProfileSignal()
     void liveSearch.runLiveSearch(true)
-  }
-
-  const saveExperienceDrafts = () => {
-    const cleaned = experienceDrafts
-      .map((item) => ({
-        ...item,
-        title: item.title.trim() || 'Role',
-        company: item.company.trim() || 'Company',
-        totalMonths: calculateExperienceMonths(item),
-      }))
-      .filter((item) => item.startDate)
-    const totalYears = Number((cleaned.reduce((total, item) => total + item.totalMonths, 0) / 12).toFixed(1))
-    replaceActiveExperience(cleaned, totalYears)
-    setManualYears(String(totalYears))
-    setProfileMessage(`Saved ${cleaned.length} experience row${cleaned.length === 1 ? '' : 's'} and updated total experience to ${totalYears} years.`)
   }
 
   const handleCvUpload = async (file: File) => {
@@ -966,7 +1022,6 @@ function CvHubPage() {
       setParseMessage(
         `Parsed ${payload.cv.skills.length} skills and ${payload.cv.totalYearsExperience} years of experience.`,
       )
-      setManualYears(String(payload.cv.totalYearsExperience || Number(manualYears) || 1))
       void liveSearch.runLiveSearch(false)
     } catch (error) {
       setParseStatus('error')
@@ -1024,7 +1079,7 @@ function CvHubPage() {
                 }}
               />
               <button
-                className="mt-4 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                className="primary-button mt-4"
                 disabled={parseStatus === 'uploading'}
                 onClick={() => fileInputRef.current?.click()}
               >
@@ -1051,50 +1106,41 @@ function CvHubPage() {
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-ink">Candidate signal</h2>
-                <p className="text-sm text-muted">Tune the skills and experience used for live extraction.</p>
+                <p className="text-sm text-muted">Tune the role, location, and skills used for live extraction.</p>
               </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="text-xs font-medium uppercase text-muted">
+              <label className="field-label">
                 Target role
-                <input
-                  className="control mt-2 h-11 w-full rounded-md px-3 text-sm normal-case"
-                  value={targetRole}
-                  onChange={(event) => setTargetRole(event.target.value)}
-                />
+                <span className="field-shell normal-case">
+                  <BriefcaseBusiness size={16} className="text-muted" />
+                  <input value={targetRole} onChange={(event) => setTargetRole(event.target.value)} placeholder="Frontend Engineer" />
+                </span>
               </label>
-              <label className="text-xs font-medium uppercase text-muted">
+              <label className="field-label">
                 Location
-                <input
-                  className="control mt-2 h-11 w-full rounded-md px-3 text-sm normal-case"
-                  value={location}
-                  onChange={(event) => setLocation(event.target.value)}
-                />
+                <span className="field-shell normal-case">
+                  <MapPin size={16} className="text-muted" />
+                  <input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Remote" />
+                </span>
               </label>
-              <label className="text-xs font-medium uppercase text-muted">
-                Experience
-                <select
-                  className="control mt-2 h-11 w-full rounded-md px-3 text-sm normal-case"
-                  value={manualYears}
-                  onChange={(event) => setManualYears(event.target.value)}
-                >
-                  {[0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 15].map((years) => (
-                    <option key={years} value={years}>
-                      {years} {years === 1 ? 'year' : 'years'}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex min-h-11 items-center gap-3 rounded-md border border-line bg-bg/60 px-3 text-sm text-ink sm:mt-6">
+              <div className="rounded-md border border-line bg-bg/60 px-3 py-2">
+                <p className="text-xs font-medium uppercase text-muted">Parsed experience</p>
+                <p className="mt-1 text-lg font-semibold text-ink">
+                  {activeCv.totalYearsExperience || 0} {activeCv.totalYearsExperience === 1 ? 'year' : 'years'}
+                </p>
+              </div>
+              <label className="flex min-h-11 items-center gap-3 rounded-md border border-line bg-bg/70 px-3 text-sm font-medium text-ink transition hover:border-primary/60 sm:mt-6">
                 <input
                   type="checkbox"
+                  className="accent-primary"
                   checked={preferredRemote}
                   onChange={(event) => setPreferredRemote(event.target.checked)}
                 />
                 Remote preferred
               </label>
             </div>
-            <label className="mt-4 block text-xs font-medium uppercase text-muted">
+            <label className="field-label mt-4">
               Manual skills
               <textarea
                 className="control mt-2 min-h-24 w-full rounded-md px-3 py-3 text-sm normal-case"
@@ -1105,14 +1151,14 @@ function CvHubPage() {
             </label>
             <div className="mt-4 flex flex-wrap gap-2">
               <button
-                className="inline-flex items-center gap-2 rounded-md border border-line bg-bg px-4 py-2 text-sm font-semibold text-ink transition hover:border-primary"
+                className="secondary-button"
                 onClick={saveProfileSignal}
               >
                 <Plus size={16} />
                 Save signal
               </button>
               <button
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                className="primary-button"
                 disabled={liveSearch.status === 'loading'}
                 onClick={searchFromCv}
               >
@@ -1142,7 +1188,6 @@ function CvHubPage() {
                     }`}
                     onClick={() => {
                       activateCv(cv.id)
-                      setManualYears(String(cv.totalYearsExperience || 1))
                     }}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -1179,7 +1224,7 @@ function CvHubPage() {
               <div key={skill.skillName} className="rounded-md border border-line bg-bg/60 p-4">
                 <p className="font-semibold text-ink">{skill.skillName}</p>
                 <p className="mt-1 text-xs text-muted">
-                  {skill.skillType} · {skill.yearsUsed} years · {skill.confidence}
+                  {skill.skillType} · {skill.confidence}
                 </p>
               </div>
             ))
@@ -1191,12 +1236,7 @@ function CvHubPage() {
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-2">
-        <ExperienceEditor
-          drafts={experienceDrafts}
-          onChange={setExperienceDrafts}
-          onSave={saveExperienceDrafts}
-        />
+      <section>
         {lastParsedCv ? (
           <div className="panel p-5">
             <h2 className="text-lg font-semibold text-ink">Education and certificates</h2>
@@ -1223,145 +1263,6 @@ function CvHubPage() {
       </section>
     </div>
   )
-}
-
-function ExperienceEditor({
-  drafts,
-  onChange,
-  onSave,
-}: {
-  drafts: CvExperience[]
-  onChange: (drafts: CvExperience[]) => void
-  onSave: () => void
-}) {
-  const updateDraft = (index: number, patch: Partial<CvExperience>) => {
-    onChange(drafts.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)))
-  }
-
-  const addDraft = () => {
-    onChange([
-      ...drafts,
-      {
-        title: '',
-        company: '',
-        startDate: '',
-        endDate: null,
-        isCurrent: false,
-        totalMonths: 0,
-      },
-    ])
-  }
-
-  const removeDraft = (index: number) => {
-    onChange(drafts.filter((_item, itemIndex) => itemIndex !== index))
-  }
-
-  return (
-    <div className="panel p-5">
-      <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-        <div>
-          <h2 className="text-lg font-semibold text-ink">Editable experience</h2>
-          <p className="text-sm text-muted">Correct the rows extracted from your CV before matching jobs.</p>
-        </div>
-        <button
-          className="inline-flex items-center gap-2 rounded-md border border-line bg-bg px-3 py-2 text-sm font-semibold text-ink transition hover:border-primary"
-          onClick={addDraft}
-        >
-          <Plus size={16} />
-          Add row
-        </button>
-      </div>
-
-      <div className="space-y-3">
-        {drafts.length ? (
-          drafts.map((item, index) => (
-            <div key={`${item.title}-${item.company}-${index}`} className="rounded-md border border-line bg-bg/60 p-4">
-              <div className="grid gap-3 md:grid-cols-2">
-                <label className="text-xs font-medium uppercase text-muted">
-                  Title
-                  <input
-                    className="control mt-2 h-10 w-full rounded-md px-3 text-sm normal-case"
-                    value={item.title}
-                    onChange={(event) => updateDraft(index, { title: event.target.value })}
-                  />
-                </label>
-                <label className="text-xs font-medium uppercase text-muted">
-                  Company
-                  <input
-                    className="control mt-2 h-10 w-full rounded-md px-3 text-sm normal-case"
-                    value={item.company}
-                    onChange={(event) => updateDraft(index, { company: event.target.value })}
-                  />
-                </label>
-                <label className="text-xs font-medium uppercase text-muted">
-                  Start
-                  <input
-                    className="control mt-2 h-10 w-full rounded-md px-3 text-sm normal-case"
-                    type="month"
-                    value={toMonthValue(item.startDate)}
-                    onChange={(event) => updateDraft(index, { startDate: event.target.value })}
-                  />
-                </label>
-                <label className="text-xs font-medium uppercase text-muted">
-                  End
-                  <input
-                    className="control mt-2 h-10 w-full rounded-md px-3 text-sm normal-case disabled:opacity-50"
-                    type="month"
-                    disabled={item.isCurrent}
-                    value={item.isCurrent ? '' : toMonthValue(item.endDate || '')}
-                    onChange={(event) => updateDraft(index, { endDate: event.target.value || null })}
-                  />
-                </label>
-              </div>
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                <label className="flex items-center gap-2 text-sm text-muted">
-                  <input
-                    type="checkbox"
-                    checked={item.isCurrent}
-                    onChange={(event) =>
-                      updateDraft(index, { isCurrent: event.target.checked, endDate: event.target.checked ? null : item.endDate })
-                    }
-                  />
-                  Current role
-                </label>
-                <button className="text-sm text-danger hover:text-danger/80" onClick={() => removeDraft(index)}>
-                  Remove
-                </button>
-              </div>
-            </div>
-          ))
-        ) : (
-          <p className="rounded-md border border-line bg-bg/60 p-4 text-sm text-muted">
-            No experience rows yet. Upload a CV or add one manually.
-          </p>
-        )}
-      </div>
-
-      <button
-        className="mt-4 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-white transition hover:bg-primary/90"
-        onClick={onSave}
-      >
-        <CheckCircle2 size={16} />
-        Save experience
-      </button>
-    </div>
-  )
-}
-
-function calculateExperienceMonths(item: CvExperience) {
-  if (!item.startDate) return 0
-  const start = monthDate(item.startDate)
-  const end = item.isCurrent || !item.endDate ? new Date() : monthDate(item.endDate)
-  return Math.max(0, (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth() + 1)
-}
-
-function monthDate(value: string) {
-  const [year, month = 1] = value.slice(0, 7).split('-').map(Number)
-  return new Date(year, month - 1, 1)
-}
-
-function toMonthValue(value: string) {
-  return value ? value.slice(0, 7) : ''
 }
 
 function TrackerPage() {
