@@ -3,6 +3,17 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import mammoth from 'mammoth'
 import pdfParse from 'pdf-parse/lib/pdf-parse.js'
 import { parseCvText } from '../src/lib/cvParser'
+import { sanitiseParsedCv } from '../src/lib/security'
+import {
+  assertSafeContentType,
+  enforceRateLimit,
+  handleOptions,
+  requireMethod,
+  sanitiseFilename,
+  sendError,
+  sendJson,
+  setCors,
+} from './security'
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024
 const allowedExtensions = new Set(['pdf', 'docx', 'doc', 'txt'])
@@ -21,46 +32,21 @@ interface UploadedFile {
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  setCors(res)
-
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204)
-    res.end()
-    return
-  }
-
-  if (req.method !== 'POST') {
-    sendJson(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Use POST multipart/form-data.' } })
-    return
-  }
+  setCors(req, res, ['POST'])
+  if (handleOptions(req, res, ['POST'])) return
 
   try {
+    requireMethod(req, ['POST'])
+    enforceRateLimit(req, 'parse-cv', 10, 15 * 60_000)
+    assertSafeContentType(req, 'multipart/form-data')
     const upload = await readMultipartFile(req)
     validateUpload(upload)
     const text = await extractText(upload)
-    const parsed = parseCvText(text, upload.filename)
+    const parsed = sanitiseParsedCv(parseCvText(text, upload.filename))
     sendJson(res, 200, { cv: parsed })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unable to parse CV'
-    const code = /file|format|size|multipart/i.test(message) ? 400 : 500
-    sendJson(res, code, {
-      error: {
-        code: code === 400 ? 'CV_PARSE_VALIDATION_ERROR' : 'CV_PARSE_ERROR',
-        message,
-      },
-    })
+    sendError(res, error, 'CV_PARSE_ERROR')
   }
-}
-
-function setCors(res: ServerResponse) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-}
-
-function sendJson(res: ServerResponse, status: number, payload: unknown) {
-  res.writeHead(status, { 'Content-Type': 'application/json' })
-  res.end(JSON.stringify(payload))
 }
 
 function readMultipartFile(req: IncomingMessage) {
@@ -75,7 +61,10 @@ function readMultipartFile(req: IncomingMessage) {
       headers: req.headers,
       limits: {
         files: 1,
+        fields: 0,
+        parts: 1,
         fileSize: MAX_FILE_SIZE,
+        headerPairs: 20,
       },
     })
 
@@ -94,7 +83,7 @@ function readMultipartFile(req: IncomingMessage) {
       file.on('end', () => {
         uploaded = {
           buffer: Buffer.concat(chunks),
-          filename: filename || 'uploaded-cv',
+          filename: sanitiseFilename(filename || 'uploaded-cv'),
           mimeType: mimeType || 'application/octet-stream',
         }
       })

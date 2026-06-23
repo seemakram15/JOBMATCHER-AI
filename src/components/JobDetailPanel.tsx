@@ -11,7 +11,11 @@ interface JobDetailPanelProps {
 
 export function JobDetailPanel({ scoredJob, onApply, onToggleSave }: JobDetailPanelProps) {
   const { job, match, isSaved } = scoredJob
-  const cleanDescription = DOMPurify.sanitize(job.descriptionHtml)
+  const cleanDescription = DOMPurify.sanitize(job.descriptionHtml, {
+    ALLOWED_TAGS: ['p', 'br', 'ul', 'ol', 'li', 'strong', 'em', 'b', 'i', 'a'],
+    ALLOWED_ATTR: ['href', 'title', 'target', 'rel'],
+    ALLOW_DATA_ATTR: false,
+  })
 
   return (
     <section className="panel p-5 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:overflow-y-auto">

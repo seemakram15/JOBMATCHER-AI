@@ -4,8 +4,10 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  for (const key of ['SERPAPI_KEY', 'APIFY_API_TOKEN', 'APIFY_API_KEYS']) {
-    process.env[key] ||= env[key]
+  for (const key of ['SERPAPI_KEY', 'APIFY_API_TOKEN', 'APIFY_API_KEYS', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'DATABASE_URL']) {
+    if (!process.env[key] && env[key]) {
+      process.env[key] = env[key]
+    }
   }
 
   return {
@@ -26,6 +28,14 @@ export default defineConfig(({ mode }) => {
             try {
               const { default: liveJobsHandler } = await import('./api/live-jobs')
               await liveJobsHandler(req, res)
+            } catch (error) {
+              sendApiMiddlewareError(res, error)
+            }
+          })
+          server.middlewares.use('/api/auth-signup', async (req, res) => {
+            try {
+              const { default: authSignupHandler } = await import('./api/auth-signup')
+              await authSignupHandler(req, res)
             } catch (error) {
               sendApiMiddlewareError(res, error)
             }

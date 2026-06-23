@@ -1,4 +1,5 @@
 import fetch from 'node-fetch'
+import { sanitiseJob } from './security'
 import type { ExperienceLevel, Job, JobType, SkillRequirement, WorkMode } from '../types'
 
 export interface LiveJobSearchInput {
@@ -80,6 +81,7 @@ export async function fetchLiveJobs(input: LiveJobSearchInput, env: Record<strin
     .filter((job) => matchesQuery(job, query, input.skills || []))
     .sort((a, b) => +new Date(b.postedAt) - +new Date(a.postedAt))
     .slice(0, input.limit || 60)
+    .map(sanitiseJob)
 
   return result
 }

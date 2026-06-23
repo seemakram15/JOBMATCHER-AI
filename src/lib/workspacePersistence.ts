@@ -1,5 +1,16 @@
 import type { User } from '@supabase/supabase-js'
 import { emptyCv } from './defaults'
+import {
+  clampNumber,
+  sanitiseApplication,
+  sanitiseCvProfile,
+  sanitiseExperience,
+  sanitiseJob,
+  sanitiseSkill,
+  sanitiseText,
+  sanitiseUrl,
+  sanitiseUserProfile,
+} from './security'
 import { requireSupabase } from './supabase'
 import type {
   Application,
@@ -182,59 +193,62 @@ export async function fetchWorkspace(user: User): Promise<WorkspaceSnapshot> {
 
 export async function updateUserProfile(profile: UserProfile) {
   const client = requireSupabase()
+  const safe = sanitiseUserProfile(profile)
   const { error } = await client
     .from('users')
     .update({
-      name: profile.name,
-      headline: profile.headline,
-      location: profile.location,
-      target_role: profile.targetRole,
-      preferred_remote: profile.preferredRemote,
-      salary_min: profile.salaryMin,
-      salary_max: profile.salaryMax,
-      currency: profile.currency,
+      name: safe.name,
+      headline: safe.headline,
+      location: safe.location,
+      target_role: safe.targetRole,
+      preferred_remote: safe.preferredRemote,
+      salary_min: safe.salaryMin,
+      salary_max: safe.salaryMax,
+      currency: safe.currency,
     })
-    .eq('id', profile.id)
+    .eq('id', safe.id)
 
   if (error) throw error
 }
 
 export async function saveParsedCv(userId: string, cv: CvProfile) {
   const client = requireSupabase()
+  const safe = sanitiseCvProfile(cv)
   await client.from('cvs').update({ is_active: false }).eq('user_id', userId)
 
   const { error: cvError } = await client.from('cvs').upsert({
-    id: cv.id,
+    id: safe.id,
     user_id: userId,
-    label: cv.label,
-    filename: cv.filename,
-    storage_path: `${userId}/${cv.id}/${cv.filename}`,
-    version: cv.version,
+    label: safe.label,
+    filename: safe.filename,
+    storage_path: `${userId}/${safe.id}/${safe.filename}`,
+    version: safe.version,
     is_active: true,
-    parse_status: cv.parseStatus,
-    parsed_at: cv.parsedAt,
-    total_years_experience: cv.totalYearsExperience,
+    parse_status: safe.parseStatus,
+    parsed_at: safe.parsedAt,
+    total_years_experience: safe.totalYearsExperience,
   })
   if (cvError) throw cvError
 
-  await replaceCvSkills(cv.id, cv.skills)
-  await replaceCvExperience(cv.id, cv.experience, cv.totalYearsExperience)
+  await replaceCvSkills(safe.id, safe.skills)
+  await replaceCvExperience(safe.id, safe.experience, safe.totalYearsExperience)
 }
 
 export async function ensureManualCv(userId: string, cv: CvProfile) {
   if (!cv.id) return
   const client = requireSupabase()
+  const safe = sanitiseCvProfile(cv)
   const { error } = await client.from('cvs').upsert({
-    id: cv.id,
+    id: safe.id,
     user_id: userId,
-    label: cv.label,
-    filename: cv.filename,
-    storage_path: `${userId}/${cv.id}/manual-profile`,
-    version: cv.version,
+    label: safe.label,
+    filename: safe.filename,
+    storage_path: `${userId}/${safe.id}/manual-profile`,
+    version: safe.version,
     is_active: true,
-    parse_status: cv.parseStatus,
-    parsed_at: cv.parsedAt,
-    total_years_experience: cv.totalYearsExperience,
+    parse_status: safe.parseStatus,
+    parsed_at: safe.parsedAt,
+    total_years_experience: safe.totalYearsExperience,
   })
   if (error) throw error
 }
@@ -249,12 +263,13 @@ export async function activateCvInDb(userId: string, cvId: string) {
 export async function replaceCvSkills(cvId: string, skills: CvSkill[]) {
   if (!cvId) return
   const client = requireSupabase()
+  const safeSkills = skills.map(sanitiseSkill).filter((skill) => skill.skillName)
   const { error: deleteError } = await client.from('cv_skills').delete().eq('cv_id', cvId)
   if (deleteError) throw deleteError
-  if (!skills.length) return
+  if (!safeSkills.length) return
 
   const { error } = await client.from('cv_skills').insert(
-    skills.map((skill) => ({
+    safeSkills.map((skill) => ({
       cv_id: cvId,
       skill_name: skill.skillName,
       skill_canonical: skill.skillCanonical,
@@ -270,18 +285,20 @@ export async function replaceCvSkills(cvId: string, skills: CvSkill[]) {
 export async function replaceCvExperience(cvId: string, experience: CvExperience[], totalYears: number) {
   if (!cvId) return
   const client = requireSupabase()
+  const safeExperience = experience.map(sanitiseExperience).filter((item) => item.title || item.company || item.startDate)
+  const safeTotalYears = clampNumber(totalYears, 0, 60, 0)
   const { error: cvError } = await client
     .from('cvs')
-    .update({ total_years_experience: totalYears })
+    .update({ total_years_experience: safeTotalYears })
     .eq('id', cvId)
   if (cvError) throw cvError
 
   const { error: deleteError } = await client.from('cv_experience').delete().eq('cv_id', cvId)
   if (deleteError) throw deleteError
-  if (!experience.length) return
+  if (!safeExperience.length) return
 
   const { error } = await client.from('cv_experience').insert(
-    experience.map((item) => ({
+    safeExperience.map((item) => ({
       cv_id: cvId,
       title: item.title,
       company: item.company,
@@ -297,8 +314,10 @@ export async function replaceCvExperience(cvId: string, experience: CvExperience
 export async function persistLiveJobs(jobs: Job[]) {
   if (!jobs.length) return
   const client = requireSupabase()
+  const safeJobs = jobs.map(sanitiseJob).filter((job) => job.title && job.applyUrl !== '#')
+  if (!safeJobs.length) return
   const { error } = await client.from('jobs').upsert(
-    jobs.map((job) => ({
+    safeJobs.map((job) => ({
       id: job.id,
       title: job.title,
       company: job.company,
@@ -327,7 +346,7 @@ export async function persistLiveJobs(jobs: Job[]) {
       fetched_at: job.fetchedAt,
       last_seen_at: new Date().toISOString(),
     })),
-    { onConflict: 'id' },
+    { onConflict: 'id', ignoreDuplicates: true },
   )
   if (error) throw error
 }
@@ -363,24 +382,25 @@ export async function persistApplication(input: {
 }) {
   const client = requireSupabase()
   const { application, userId, previousStatus = null } = input
+  const safe = sanitiseApplication(application)
   const { error } = await client.from('applications').upsert({
-    id: application.id,
+    id: safe.id,
     user_id: userId,
-    job_id: application.jobId,
-    cv_id: application.cvId || null,
-    status: application.status,
-    notes: application.notes,
-    reminder_date: application.reminderDate || null,
-    applied_at: application.appliedAt || null,
-    last_updated: application.lastUpdated,
-    created_at: application.createdAt,
+    job_id: safe.jobId,
+    cv_id: safe.cvId || null,
+    status: safe.status,
+    notes: safe.notes,
+    reminder_date: safe.reminderDate || null,
+    applied_at: safe.appliedAt || null,
+    last_updated: safe.lastUpdated,
+    created_at: safe.createdAt,
   })
   if (error) throw error
 
-  const lastHistory = application.history[application.history.length - 1]
+  const lastHistory = safe.history[safe.history.length - 1]
   if (lastHistory) {
     await client.from('application_history').insert({
-      application_id: application.id,
+      application_id: safe.id,
       old_status: previousStatus,
       new_status: application.status,
       note: lastHistory.note,
@@ -413,7 +433,7 @@ async function fetchJobs(jobIds: string[]) {
 }
 
 function mapUser(row: UserRow): UserProfile {
-  return {
+  return sanitiseUserProfile({
     id: row.id,
     email: row.email,
     name: row.name || row.email.split('@')[0] || 'Jobmatcher user',
@@ -426,7 +446,7 @@ function mapUser(row: UserRow): UserProfile {
     salaryMax: row.salary_max || 0,
     currency: row.currency || 'USD',
     activeCvId: '',
-  }
+  })
 }
 
 function mapCv(row: CvRow): CvProfile {
@@ -434,7 +454,7 @@ function mapCv(row: CvRow): CvProfile {
   const experience = (row.cv_experience || []).map(mapExperience)
   const durationYears = experience.reduce((total, item) => total + item.totalMonths, 0) / 12
 
-  return {
+  return sanitiseCvProfile({
     id: row.id,
     label: row.label || 'Uploaded CV',
     filename: row.filename,
@@ -445,7 +465,7 @@ function mapCv(row: CvRow): CvProfile {
     skills,
     experience,
     totalYearsExperience: Number(row.total_years_experience ?? durationYears.toFixed(1)),
-  }
+  })
 }
 
 function mapSkill(row: CvSkillRow): CvSkill {
@@ -494,16 +514,16 @@ function mapNotification(row: NotificationRow): NotificationItem {
   return {
     id: String(row.id),
     type: row.type,
-    title: row.title,
-    message: row.message || '',
-    actionUrl: row.action_url || undefined,
+    title: sanitiseText(row.title, 160),
+    message: sanitiseText(row.message || '', 500),
+    actionUrl: row.action_url ? sanitiseUrl(row.action_url, undefined) : undefined,
     isRead: Boolean(row.is_read),
     createdAt: row.created_at,
   }
 }
 
 function mapJob(row: Record<string, unknown>): Job {
-  return {
+  return sanitiseJob({
     id: String(row.id),
     title: String(row.title || 'Untitled role'),
     company: String(row.company || 'Unknown company'),
@@ -527,7 +547,7 @@ function mapJob(row: Record<string, unknown>): Job {
     sourcePlatform: String(row.source_platform || 'Live source'),
     postedAt: String(row.posted_at || row.fetched_at || new Date().toISOString()),
     fetchedAt: String(row.fetched_at || new Date().toISOString()),
-  }
+  })
 }
 
 function optionalNumber(value: unknown) {

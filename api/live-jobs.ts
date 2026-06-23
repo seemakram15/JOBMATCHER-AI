@@ -1,32 +1,61 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { z } from 'zod'
 import { fetchLiveJobs } from '../src/lib/liveJobs'
+import {
+  enforceRateLimit,
+  handleOptions,
+  parseSearchParams,
+  requireMethod,
+  sendError,
+  sendJson,
+  setCors,
+} from './security'
+
+const liveJobsQuerySchema = z.object({
+  query: z
+    .string()
+    .trim()
+    .max(120, 'Search query is too long.')
+    .regex(/^[\w\s+#.,/&()-]*$/, 'Search query contains unsupported characters.')
+    .optional()
+    .default('software engineer'),
+  location: z
+    .string()
+    .trim()
+    .max(100, 'Location is too long.')
+    .regex(/^[\w\s,.() -]*$/, 'Location contains unsupported characters.')
+    .optional()
+    .default('Remote'),
+  skills: z
+    .string()
+    .trim()
+    .max(500, 'Skills list is too long.')
+    .optional()
+    .default(''),
+  experienceYears: z.coerce.number().min(0).max(60).optional(),
+  limit: z.coerce.number().int().min(1).max(60).optional().default(60),
+})
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  setCors(res)
-
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204)
-    res.end()
-    return
-  }
-
-  if (req.method !== 'GET') {
-    sendJson(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Use GET.' } })
-    return
-  }
+  setCors(req, res, ['GET'])
+  if (handleOptions(req, res, ['GET'])) return
 
   try {
-    const url = new URL(req.url || '/', 'http://localhost')
-    const skills = (url.searchParams.get('skills') || '')
+    requireMethod(req, ['GET'])
+    enforceRateLimit(req, 'live-jobs', 30, 60_000)
+    const input = parseSearchParams(req, liveJobsQuerySchema)
+    const skills = input.skills
       .split(',')
       .map((skill) => skill.trim())
+      .filter((skill) => /^[\w\s+#./-]{1,50}$/.test(skill))
+      .slice(0, 20)
       .filter(Boolean)
     const result = await fetchLiveJobs({
-      query: url.searchParams.get('query') || skills.join(' ') || 'software engineer',
-      location: url.searchParams.get('location') || 'Remote',
+      query: input.query || skills.join(' ') || 'software engineer',
+      location: input.location,
       skills,
-      experienceYears: Number(url.searchParams.get('experienceYears') || '0') || undefined,
-      limit: Number(url.searchParams.get('limit') || '60'),
+      experienceYears: input.experienceYears,
+      limit: input.limit,
     })
 
     sendJson(res, 200, {
@@ -35,22 +64,6 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       fetchedAt: new Date().toISOString(),
     })
   } catch (error) {
-    sendJson(res, 500, {
-      error: {
-        code: 'LIVE_JOBS_FETCH_FAILED',
-        message: error instanceof Error ? error.message : 'Unable to fetch live jobs.',
-      },
-    })
+    sendError(res, error, 'LIVE_JOBS_FETCH_FAILED')
   }
-}
-
-function setCors(res: ServerResponse) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-}
-
-function sendJson(res: ServerResponse, status: number, payload: unknown) {
-  res.writeHead(status, { 'Content-Type': 'application/json' })
-  res.end(JSON.stringify(payload))
 }
