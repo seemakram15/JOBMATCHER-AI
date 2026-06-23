@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createClient } from '@supabase/supabase-js'
 import { Client } from 'pg'
 import { z } from 'zod'
-import { sanitiseText } from '../src/lib/security'
+import { sanitiseText } from '../src/lib/security.js'
 import {
   ApiError,
   enforceRateLimit,
@@ -11,7 +11,7 @@ import {
   sendError,
   sendJson,
   setCors,
-} from './security'
+} from './security.js'
 
 const signupSchema = z.object({
   email: z.string().trim().email('Enter a valid email.').max(254),
