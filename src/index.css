@@ -98,6 +98,39 @@
     color: rgb(var(--color-ink));
   }
 
+  select {
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    color-scheme: dark;
+    background-image:
+      linear-gradient(45deg, transparent 50%, rgb(var(--color-muted)) 50%),
+      linear-gradient(135deg, rgb(var(--color-muted)) 50%, transparent 50%),
+      linear-gradient(to bottom, rgb(var(--color-line) / 0.65), rgb(var(--color-line) / 0.65));
+    background-position:
+      calc(100% - 18px) calc(50% - 3px),
+      calc(100% - 12px) calc(50% - 3px),
+      calc(100% - 2.45rem) 50%;
+    background-repeat: no-repeat;
+    background-size: 6px 6px, 6px 6px, 1px 58%;
+    padding-right: 2.75rem !important;
+  }
+
+  :root.light select {
+    color-scheme: light;
+  }
+
+  select option,
+  select optgroup {
+    background: rgb(var(--color-panel));
+    color: rgb(var(--color-ink));
+  }
+
+  select:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
   button:focus-visible,
   a:focus-visible,
   input:focus-visible,
@@ -122,6 +155,12 @@
     box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
   }
 
+  select.control {
+    @apply font-medium;
+    min-height: 2.5rem;
+    background-color: rgb(var(--color-bg) / 0.84);
+  }
+
   .control:hover {
     border-color: rgb(var(--color-primary) / 0.55);
   }
@@ -140,6 +179,10 @@
     @apply mt-2 flex min-h-11 items-center gap-2 rounded-md border border-line bg-bg/80 px-3 transition;
   }
 
+  .field-shell > svg {
+    flex: 0 0 auto;
+  }
+
   .field-shell:hover {
     border-color: rgb(var(--color-primary) / 0.45);
   }
@@ -151,7 +194,28 @@
 
   .field-shell input,
   .field-shell select {
-    @apply h-10 w-full bg-transparent text-sm text-ink outline-none placeholder:text-muted;
+    @apply h-10 w-full min-w-0 bg-transparent text-sm text-ink outline-none placeholder:text-muted;
+  }
+
+  .field-shell select {
+    @apply font-medium;
+    margin-right: -0.35rem;
+  }
+
+  select.control:hover,
+  .field-shell:hover select {
+    background-image:
+      linear-gradient(45deg, transparent 50%, rgb(var(--color-primary)) 50%),
+      linear-gradient(135deg, rgb(var(--color-primary)) 50%, transparent 50%),
+      linear-gradient(to bottom, rgb(var(--color-primary) / 0.55), rgb(var(--color-primary) / 0.55));
+  }
+
+  select.control:focus,
+  .field-shell:focus-within select {
+    background-image:
+      linear-gradient(45deg, transparent 50%, rgb(var(--color-primary)) 50%),
+      linear-gradient(135deg, rgb(var(--color-primary)) 50%, transparent 50%),
+      linear-gradient(to bottom, rgb(var(--color-primary)), rgb(var(--color-primary)));
   }
 
   .icon-button {
