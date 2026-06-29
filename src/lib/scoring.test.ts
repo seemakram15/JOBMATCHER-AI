@@ -27,9 +27,9 @@ const sampleCv: CvProfile = {
   parsedAt: new Date().toISOString(),
   totalYearsExperience: 5,
   skills: [
-    { skillName: 'React', skillCanonical: 'React', skillType: 'framework', yearsUsed: 5, confidence: 'high' },
-    { skillName: 'TypeScript', skillCanonical: 'TypeScript', skillType: 'technical', yearsUsed: 4, confidence: 'high' },
-    { skillName: 'Node.js', skillCanonical: 'Node.js', skillType: 'technical', yearsUsed: 3, confidence: 'high' },
+    { skillName: 'React', skillCanonical: 'React', skillType: 'framework', yearsUsed: 5, skillRank: 92, confidence: 'high' },
+    { skillName: 'TypeScript', skillCanonical: 'TypeScript', skillType: 'technical', yearsUsed: 4, skillRank: 88, confidence: 'high' },
+    { skillName: 'Node.js', skillCanonical: 'Node.js', skillType: 'technical', yearsUsed: 3, skillRank: 82, confidence: 'high' },
   ],
   experience: [],
 }

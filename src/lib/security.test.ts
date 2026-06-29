@@ -15,6 +15,7 @@ describe('security sanitizers', () => {
           skillCanonical: 'React',
           skillType: 'framework',
           yearsUsed: 99,
+          skillRank: 150,
           confidence: 'high',
         },
       ],
@@ -30,6 +31,7 @@ describe('security sanitizers', () => {
     expect(safe.text).not.toContain('script')
     expect(safe.totalYearsExperience).toBe(60)
     expect(safe.skills[0].yearsUsed).toBe(60)
+    expect(safe.skills[0].skillRank).toBe(100)
     expect(safe.education[0]).toBe('BS CS')
   })
 

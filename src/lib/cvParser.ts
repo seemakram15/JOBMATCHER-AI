@@ -170,11 +170,19 @@ function extractSkills(text: string, totalYearsExperience: number): CvSkill[] {
       skillCanonical: definition.canonical,
       skillType: definition.type,
       yearsUsed: estimateSkillYears(text, matchedAlias, totalYearsExperience),
+      skillRank: estimateSkillRank(text, matchedAlias, totalYearsExperience),
       confidence: matchedAlias === definition.canonical.toLowerCase() ? 'high' : 'medium',
     })
   }
 
   return matches.sort((a, b) => b.yearsUsed - a.yearsUsed || a.skillName.localeCompare(b.skillName))
+}
+
+function estimateSkillRank(text: string, alias: string, totalYearsExperience: number) {
+  const mentions = text.toLowerCase().split(alias.toLowerCase()).length - 1
+  const experienceBoost = Math.min(16, Math.max(0, totalYearsExperience) * 2)
+  const mentionBoost = Math.min(12, mentions * 4)
+  return Math.min(96, Math.round(62 + experienceBoost + mentionBoost))
 }
 
 function containsPhrase(text: string, phrase: string) {

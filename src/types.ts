@@ -31,6 +31,7 @@ export interface CvSkill {
   skillCanonical: string
   skillType: 'technical' | 'soft' | 'language' | 'tool' | 'framework' | 'certification'
   yearsUsed: number
+  skillRank: number
   confidence: 'high' | 'medium' | 'low'
   isManual?: boolean
 }

@@ -56,6 +56,7 @@ interface CvSkillRow {
   skill_canonical: string | null
   skill_type: CvSkill['skillType'] | null
   years_used: number | null
+  skill_rank?: number | null
   confidence: CvSkill['confidence'] | null
   is_manual: boolean | null
 }
@@ -260,6 +261,36 @@ export async function activateCvInDb(userId: string, cvId: string) {
   if (error) throw error
 }
 
+export async function deleteCvForUser(userId: string, cvId: string) {
+  if (!userId || !cvId) return
+  const client = requireSupabase()
+  const { data } = await client.auth.getUser()
+  if (data.user?.id !== userId) throw new Error('Cannot delete CV data for another user.')
+
+  const { error: scoreError } = await client
+    .from('user_job_scores')
+    .delete()
+    .eq('user_id', userId)
+    .eq('cv_id', cvId)
+  if (scoreError) throw scoreError
+
+  const { error } = await client.from('cvs').delete().eq('id', cvId).eq('user_id', userId)
+  if (error) throw error
+}
+
+export async function clearCvDataForUser(userId: string) {
+  if (!userId) return
+  const client = requireSupabase()
+  const { data } = await client.auth.getUser()
+  if (data.user?.id !== userId) throw new Error('Cannot clear CV data for another user.')
+
+  const { error: scoreError } = await client.from('user_job_scores').delete().eq('user_id', userId)
+  if (scoreError) throw scoreError
+
+  const { error } = await client.from('cvs').delete().eq('user_id', userId)
+  if (error) throw error
+}
+
 export async function replaceCvSkills(cvId: string, skills: CvSkill[]) {
   if (!cvId) return
   const client = requireSupabase()
@@ -268,17 +299,33 @@ export async function replaceCvSkills(cvId: string, skills: CvSkill[]) {
   if (deleteError) throw deleteError
   if (!safeSkills.length) return
 
-  const { error } = await client.from('cv_skills').insert(
-    safeSkills.map((skill) => ({
-      cv_id: cvId,
-      skill_name: skill.skillName,
-      skill_canonical: skill.skillCanonical,
-      skill_type: skill.skillType,
-      years_used: skill.yearsUsed,
-      confidence: skill.confidence,
-      is_manual: Boolean(skill.isManual),
-    })),
-  )
+  const rows = safeSkills.map((skill) => ({
+    cv_id: cvId,
+    skill_name: skill.skillName,
+    skill_canonical: skill.skillCanonical,
+    skill_type: skill.skillType,
+    years_used: skill.yearsUsed,
+    skill_rank: skill.skillRank,
+    confidence: skill.confidence,
+    is_manual: Boolean(skill.isManual),
+  }))
+
+  const { error } = await client.from('cv_skills').insert(rows)
+  if (error && /skill_rank/i.test(error.message)) {
+    const { error: fallbackError } = await client.from('cv_skills').insert(
+      rows.map((row) => ({
+        cv_id: row.cv_id,
+        skill_name: row.skill_name,
+        skill_canonical: row.skill_canonical,
+        skill_type: row.skill_type,
+        years_used: row.years_used,
+        confidence: row.confidence,
+        is_manual: row.is_manual,
+      })),
+    )
+    if (fallbackError) throw fallbackError
+    return
+  }
   if (error) throw error
 }
 
@@ -474,9 +521,15 @@ function mapSkill(row: CvSkillRow): CvSkill {
     skillCanonical: row.skill_canonical || row.skill_name,
     skillType: row.skill_type || 'technical',
     yearsUsed: Number(row.years_used || 0),
+    skillRank: Number(row.skill_rank ?? rankFromLegacySkill(row.years_used, row.confidence)),
     confidence: row.confidence || 'medium',
     isManual: Boolean(row.is_manual),
   }
+}
+
+function rankFromLegacySkill(yearsUsed: number | null, confidence: CvSkill['confidence'] | null) {
+  const base = confidence === 'high' ? 84 : confidence === 'medium' ? 68 : 50
+  return Math.min(96, base + Math.min(12, Math.round(Number(yearsUsed || 0) * 2)))
 }
 
 function mapExperience(row: CvExperienceRow): CvExperience {

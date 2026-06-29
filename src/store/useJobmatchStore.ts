@@ -4,6 +4,8 @@ import { hasSupabaseConfig, requireSupabase, supabase } from '../lib/supabase'
 import { scoreJobs } from '../lib/scoring'
 import {
   activateCvInDb,
+  clearCvDataForUser,
+  deleteCvForUser,
   deleteApplication,
   ensureManualCv,
   fetchWorkspace,
@@ -21,6 +23,7 @@ import type {
   ApplicationStatus,
   CvExperience,
   CvProfile,
+  CvSkill,
   Job,
   JobFilters,
   LiveJobSourceResult,
@@ -61,8 +64,12 @@ interface JobmatchState {
   updateApplicationStatus: (applicationId: string, status: ApplicationStatus) => void
   markAllNotificationsRead: () => void
   activateCv: (cvId: string) => void
+  deleteCv: (cvId: string) => void
+  clearCvData: () => void
   addParsedCv: (parsedCv: ParsedCvPayload) => void
   addManualSkills: (skills: string[], yearsUsed: number) => void
+  upsertSkill: (skill: CvSkill, previousCanonical?: string) => void
+  removeSkill: (skillCanonical: string) => void
   setActiveExperience: (years: number) => void
   replaceActiveExperience: (experience: CvExperience[], totalYears: number) => void
   updateProfile: (profile: Partial<Pick<UserProfile, 'targetRole' | 'location' | 'preferredRemote'>>) => void
@@ -70,10 +77,33 @@ interface JobmatchState {
 }
 
 let authListenerStarted = false
+let visibilityRefreshStarted = false
+let lastVisibilityRefreshAt = 0
+
+type WorkspaceCache = Pick<
+  JobmatchState,
+  | 'userId'
+  | 'profile'
+  | 'cvs'
+  | 'jobs'
+  | 'applications'
+  | 'notifications'
+  | 'filters'
+  | 'selectedJobId'
+  | 'activeCv'
+  | 'savedJobIds'
+  | 'searchedJobsCount'
+  | 'lastLiveSearchAt'
+  | 'liveJobSources'
+> & {
+  cachedAt: string
+}
+
+const workspaceCacheKey = 'jobmatcher-workspace-cache-v1'
 
 const timestamp = () => new Date().toISOString()
 
-const initialState = {
+const emptyState = {
   authStatus: 'loading' as AuthStatus,
   workspaceStatus: 'idle' as WorkspaceStatus,
   authMessage: '',
@@ -90,6 +120,14 @@ const initialState = {
   searchedJobsCount: 0,
   lastLiveSearchAt: null,
   liveJobSources: [],
+}
+
+const cachedWorkspace = readWorkspaceCache()
+
+const initialState = {
+  ...emptyState,
+  ...(cachedWorkspace ? omitCachedAt(cachedWorkspace) : {}),
+  workspaceStatus: cachedWorkspace ? ('ready' as WorkspaceStatus) : emptyState.workspaceStatus,
 }
 
 export const useJobmatchStore = create<JobmatchState>((set) => ({
@@ -119,15 +157,21 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
 
     if (!authListenerStarted) {
       authListenerStarted = true
-      supabase.auth.onAuthStateChange((_event, session) => {
+      supabase.auth.onAuthStateChange((event, session) => {
         const nextUser = session?.user
         if (nextUser) {
-          void loadWorkspaceForUser(nextUser.id, nextUser.email || '')
+          const state = useJobmatchStore.getState()
+          const isSameUser = state.userId === nextUser.id || state.profile.id === nextUser.id
+          void loadWorkspaceForUser(nextUser.id, nextUser.email || '', {
+            background: isSameUser && (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED'),
+          })
         } else {
           resetWorkspace(set, 'unauthenticated')
         }
       })
     }
+
+    startVisibilityRefresh()
   },
   signUp: async (email, password, name) => {
     const client = requireSupabase()
@@ -270,6 +314,69 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
         profile: { ...state.profile, activeCvId: activeCv.id },
       }
     }),
+  deleteCv: (cvId) =>
+    set((state) => {
+      if (!cvId) return state
+      const deletingActiveCv = state.activeCv.id === cvId
+      const remainingCvs = state.cvs.filter((cv) => cv.id !== cvId)
+      const nextActiveCv = deletingActiveCv ? remainingCvs[0] ?? emptyCv : state.activeCv
+      const cvs = remainingCvs.map((cv) => ({ ...cv, isActive: cv.id === nextActiveCv.id }))
+
+      void deleteCvForUser(state.profile.id, cvId)
+        .then(() => {
+          if (nextActiveCv.id) return activateCvInDb(state.profile.id, nextActiveCv.id)
+          return Promise.resolve()
+        })
+        .catch((error) => addPersistenceWarning(error))
+
+      return {
+        cvs,
+        activeCv: nextActiveCv.id ? { ...nextActiveCv, isActive: true } : emptyCv,
+        profile: { ...state.profile, activeCvId: nextActiveCv.id },
+        jobs: deletingActiveCv ? [] : state.jobs,
+        selectedJobId: deletingActiveCv ? '' : state.selectedJobId,
+        searchedJobsCount: deletingActiveCv ? 0 : state.searchedJobsCount,
+        lastLiveSearchAt: deletingActiveCv ? null : state.lastLiveSearchAt,
+        liveJobSources: deletingActiveCv ? [] : state.liveJobSources,
+        notifications: [
+          {
+            id: createUuid(),
+            type: 'system',
+            title: 'CV data removed',
+            message: 'The selected CV profile, skills, experience, and match scores were removed from your account.',
+            isRead: false,
+            createdAt: timestamp(),
+          },
+          ...state.notifications,
+        ],
+      }
+    }),
+  clearCvData: () =>
+    set((state) => {
+      void clearCvDataForUser(state.profile.id).catch((error) => addPersistenceWarning(error))
+
+      return {
+        cvs: [],
+        activeCv: emptyCv,
+        profile: { ...state.profile, activeCvId: '' },
+        jobs: [],
+        selectedJobId: '',
+        searchedJobsCount: 0,
+        lastLiveSearchAt: null,
+        liveJobSources: [],
+        notifications: [
+          {
+            id: createUuid(),
+            type: 'system',
+            title: 'All CV data cleared',
+            message: 'All CV profiles, extracted skills, experience, and CV-based match scores were removed from your account.',
+            isRead: false,
+            createdAt: timestamp(),
+          },
+          ...state.notifications,
+        ],
+      }
+    }),
   addParsedCv: (parsedCv) =>
     set((state) => {
       const cv: CvProfile = {
@@ -320,6 +427,7 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
             skillCanonical: skill,
             skillType: 'technical' as const,
             yearsUsed,
+            skillRank: 76,
             confidence: 'high' as const,
             isManual: true,
           })),
@@ -334,6 +442,45 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
         .then(() => replaceCvExperience(nextCv.id, nextCv.experience, nextCv.totalYearsExperience))
         .catch((error) => addPersistenceWarning(error))
 
+      return setActiveCvInState(state, nextCv)
+    }),
+  upsertSkill: (skill, previousCanonical) =>
+    set((state) => {
+      const activeCv = ensureActiveCv(state)
+      const cleaned = cleanSkill(skill)
+      if (!cleaned.skillName) return state
+      const previousKey = normaliseSkillKey(previousCanonical || cleaned.skillCanonical)
+      const cleanedKey = normaliseSkillKey(cleaned.skillCanonical)
+      const existingIndex = activeCv.skills.findIndex((item) => normaliseSkillKey(item.skillCanonical) === previousKey)
+      const duplicateIndex = activeCv.skills.findIndex((item) => normaliseSkillKey(item.skillCanonical) === cleanedKey)
+      const nextSkills = [...activeCv.skills]
+
+      if (existingIndex >= 0) {
+        if (duplicateIndex >= 0 && duplicateIndex !== existingIndex) {
+          nextSkills.splice(existingIndex, 1)
+          nextSkills[duplicateIndex] = { ...nextSkills[duplicateIndex], ...cleaned }
+        } else {
+          nextSkills[existingIndex] = { ...nextSkills[existingIndex], ...cleaned }
+        }
+      } else if (duplicateIndex >= 0) {
+        nextSkills[duplicateIndex] = { ...nextSkills[duplicateIndex], ...cleaned }
+      } else {
+        nextSkills.unshift(cleaned)
+      }
+
+      const nextCv = { ...activeCv, skills: nextSkills }
+      void persistActiveCvSkills(state.profile.id, nextCv)
+      return setActiveCvInState(state, nextCv)
+    }),
+  removeSkill: (skillCanonical) =>
+    set((state) => {
+      const activeCv = ensureActiveCv(state)
+      const key = normaliseSkillKey(skillCanonical)
+      const nextCv = {
+        ...activeCv,
+        skills: activeCv.skills.filter((skill) => normaliseSkillKey(skill.skillCanonical) !== key),
+      }
+      void persistActiveCvSkills(state.profile.id, nextCv)
       return setActiveCvInState(state, nextCv)
     }),
   setActiveExperience: (years) =>
@@ -404,13 +551,23 @@ export const selectScoredJobs = () => {
   return scoreJobs(state.profile, state.activeCv, state.jobs, state.savedJobIds)
 }
 
-async function loadWorkspaceForUser(userId: string, email: string) {
+async function loadWorkspaceForUser(
+  userId: string,
+  email: string,
+  options: { background?: boolean } = {},
+) {
+  const current = useJobmatchStore.getState()
+  const isSameUser = current.userId === userId || current.profile.id === userId
+  const shouldKeepCurrentWorkspace = Boolean(options.background || (isSameUser && hasWorkspaceSnapshot(current)))
+
   useJobmatchStore.setState({
     authStatus: 'authenticated',
-    workspaceStatus: 'loading',
+    workspaceStatus: shouldKeepCurrentWorkspace ? current.workspaceStatus : 'loading',
     authMessage: '',
     userId,
-    profile: createEmptyProfile({ id: userId, email }),
+    profile: shouldKeepCurrentWorkspace
+      ? { ...current.profile, id: userId, email: email || current.profile.email }
+      : createEmptyProfile({ id: userId, email }),
   })
 
   try {
@@ -432,6 +589,15 @@ async function loadWorkspaceForUser(userId: string, email: string) {
       filters: defaultFilters,
     })
   } catch (error) {
+    if (shouldKeepCurrentWorkspace) {
+      useJobmatchStore.setState({
+        workspaceStatus: 'ready',
+        authStatus: 'authenticated',
+        authMessage: error instanceof Error ? error.message : 'Unable to refresh workspace.',
+      })
+      return
+    }
+
     useJobmatchStore.setState({
       workspaceStatus: 'error',
       authStatus: 'error',
@@ -445,12 +611,41 @@ function resetWorkspace(
   authStatus: AuthStatus,
   authMessage = useJobmatchStore.getState().authMessage,
 ) {
+  clearWorkspaceCache()
   set({
-    ...initialState,
+    ...emptyState,
     authStatus,
     workspaceStatus: authStatus === 'unauthenticated' ? 'idle' : 'error',
     authMessage,
   })
+}
+
+function startVisibilityRefresh() {
+  if (visibilityRefreshStarted || typeof document === 'undefined') return
+  visibilityRefreshStarted = true
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') return
+
+    const now = Date.now()
+    if (now - lastVisibilityRefreshAt < 10_000) return
+    lastVisibilityRefreshAt = now
+
+    const state = useJobmatchStore.getState()
+    if (state.authStatus !== 'authenticated' || !state.userId) return
+    void loadWorkspaceForUser(state.userId, state.profile.email, { background: true })
+  })
+}
+
+function hasWorkspaceSnapshot(state: Pick<JobmatchState, 'profile' | 'userId' | 'activeCv' | 'cvs' | 'jobs' | 'applications'>) {
+  return Boolean(
+    state.userId ||
+      state.profile.id ||
+      state.activeCv.id ||
+      state.cvs.length ||
+      state.jobs.length ||
+      state.applications.length,
+  )
 }
 
 function createApplication(
@@ -524,6 +719,37 @@ function setActiveCvInState(state: JobmatchState, nextCv: CvProfile) {
   }
 }
 
+async function persistActiveCvSkills(userId: string, cv: CvProfile) {
+  await ensureManualCv(userId, cv)
+  await replaceCvSkills(cv.id, cv.skills)
+}
+
+function cleanSkill(skill: CvSkill): CvSkill {
+  const skillName = skill.skillName.trim()
+  const skillCanonical = (skill.skillCanonical || skillName).trim()
+  const skillRank = Math.round(Math.min(Math.max(Number(skill.skillRank) || 0, 0), 100))
+
+  return {
+    skillName,
+    skillCanonical,
+    skillType: skill.skillType || 'technical',
+    yearsUsed: Math.min(Math.max(Number(skill.yearsUsed) || 0, 0), 60),
+    skillRank,
+    confidence: rankToConfidence(skillRank),
+    isManual: Boolean(skill.isManual),
+  }
+}
+
+function rankToConfidence(rank: number): CvSkill['confidence'] {
+  if (rank >= 78) return 'high'
+  if (rank >= 45) return 'medium'
+  return 'low'
+}
+
+function normaliseSkillKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9+#.]+/g, ' ').trim()
+}
+
 function addPersistenceWarning(error: unknown) {
   const message = error instanceof Error ? error.message : 'A workspace save failed.'
   useJobmatchStore.setState((state) => ({
@@ -548,3 +774,81 @@ function createUuid() {
     (Number(char) ^ (Math.random() * 16) >> (Number(char) / 4)).toString(16),
   )
 }
+
+function readWorkspaceCache(): WorkspaceCache | null {
+  if (typeof window === 'undefined') return null
+
+  try {
+    const raw = window.localStorage.getItem(workspaceCacheKey)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<WorkspaceCache>
+    if (!parsed.profile?.id && !parsed.userId) return null
+
+    return {
+      userId: parsed.userId || parsed.profile?.id || null,
+      profile: parsed.profile || createEmptyProfile(),
+      cvs: Array.isArray(parsed.cvs) ? parsed.cvs : [],
+      jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
+      applications: Array.isArray(parsed.applications) ? parsed.applications : [],
+      notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
+      filters: parsed.filters || defaultFilters,
+      selectedJobId: parsed.selectedJobId || parsed.jobs?.[0]?.id || '',
+      activeCv: parsed.activeCv || emptyCv,
+      savedJobIds: Array.isArray(parsed.savedJobIds) ? parsed.savedJobIds : [],
+      searchedJobsCount: Number(parsed.searchedJobsCount) || parsed.jobs?.length || 0,
+      lastLiveSearchAt: parsed.lastLiveSearchAt || null,
+      liveJobSources: Array.isArray(parsed.liveJobSources) ? parsed.liveJobSources : [],
+      cachedAt: parsed.cachedAt || timestamp(),
+    }
+  } catch {
+    return null
+  }
+}
+
+function writeWorkspaceCache(state: JobmatchState) {
+  if (typeof window === 'undefined' || !state.profile.id) return
+
+  const cache: WorkspaceCache = {
+    userId: state.userId || state.profile.id,
+    profile: state.profile,
+    cvs: state.cvs,
+    jobs: state.jobs,
+    applications: state.applications,
+    notifications: state.notifications,
+    filters: state.filters,
+    selectedJobId: state.selectedJobId,
+    activeCv: state.activeCv,
+    savedJobIds: state.savedJobIds,
+    searchedJobsCount: state.searchedJobsCount,
+    lastLiveSearchAt: state.lastLiveSearchAt,
+    liveJobSources: state.liveJobSources,
+    cachedAt: timestamp(),
+  }
+
+  try {
+    window.localStorage.setItem(workspaceCacheKey, JSON.stringify(cache))
+  } catch {
+    // Storage can fail in private mode or when quota is exceeded; the live Supabase path remains authoritative.
+  }
+}
+
+function clearWorkspaceCache() {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.removeItem(workspaceCacheKey)
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
+
+function omitCachedAt(cache: WorkspaceCache): Omit<WorkspaceCache, 'cachedAt'> {
+  const { cachedAt, ...state } = cache
+  void cachedAt
+  return state
+}
+
+useJobmatchStore.subscribe((state) => {
+  if (state.authStatus === 'authenticated' && state.profile.id) writeWorkspaceCache(state)
+  if (state.authStatus === 'unauthenticated') clearWorkspaceCache()
+})
