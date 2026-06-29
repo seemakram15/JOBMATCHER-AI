@@ -30,17 +30,17 @@
 
   :root.light {
     color-scheme: light;
-    --color-bg: 246 247 244;
+    --color-bg: 248 250 252;
     --color-panel: 255 255 255;
-    --color-ink: 24 32 42;
-    --color-muted: 96 107 121;
+    --color-ink: 15 23 42;
+    --color-muted: 86 100 118;
     --color-primary: 37 99 235;
     --color-success: 22 163 74;
     --color-warning: 202 138 4;
     --color-danger: 220 38 38;
     --color-cyan: 8 145 178;
-    --color-line: 218 224 232;
-    --shadow-soft: 82 95 127;
+    --color-line: 219 226 236;
+    --shadow-soft: 58 76 116;
   }
 
   :root.dark {
@@ -52,7 +52,7 @@
   }
 
   html {
-    scroll-behavior: smooth;
+    scroll-behavior: auto;
   }
 
   body {
@@ -62,6 +62,27 @@
     background:
       linear-gradient(180deg, rgb(var(--color-primary) / 0.13), rgb(var(--color-bg) / 0) 280px),
       rgb(var(--color-bg));
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(var(--color-primary) / 0.65) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: rgb(var(--color-primary) / 0.55);
+    background-clip: padding-box;
   }
 
   button,
@@ -119,6 +140,10 @@
     @apply mt-2 flex min-h-11 items-center gap-2 rounded-md border border-line bg-bg/80 px-3 transition;
   }
 
+  .field-shell:hover {
+    border-color: rgb(var(--color-primary) / 0.45);
+  }
+
   .field-shell:focus-within {
     border-color: rgb(var(--color-primary));
     box-shadow: 0 0 0 3px rgb(var(--color-primary) / 0.16);
@@ -139,5 +164,53 @@
 
   .secondary-button {
     @apply inline-flex items-center justify-center gap-2 rounded-md border border-line bg-panel px-4 py-2 text-sm font-semibold text-ink transition hover:border-primary hover:bg-primary/10;
+  }
+
+  .skill-range {
+    height: 26px;
+    accent-color: rgb(var(--color-primary));
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .skill-range::-webkit-slider-runnable-track {
+    height: 10px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgb(var(--color-primary)) var(--rank, 70%), rgb(var(--color-line)) var(--rank, 70%));
+  }
+
+  .skill-range::-webkit-slider-thumb {
+    width: 22px;
+    height: 22px;
+    margin-top: -6px;
+    border: 3px solid rgb(var(--color-panel));
+    border-radius: 999px;
+    background: rgb(var(--color-primary));
+    box-shadow: 0 8px 20px rgb(var(--color-primary) / 0.28);
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .skill-range::-moz-range-track {
+    height: 10px;
+    border-radius: 999px;
+    background: rgb(var(--color-line));
+  }
+
+  .skill-range::-moz-range-progress {
+    height: 10px;
+    border-radius: 999px;
+    background: rgb(var(--color-primary));
+  }
+
+  .skill-range::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border: 3px solid rgb(var(--color-panel));
+    border-radius: 999px;
+    background: rgb(var(--color-primary));
+    box-shadow: 0 8px 20px rgb(var(--color-primary) / 0.28);
   }
 }

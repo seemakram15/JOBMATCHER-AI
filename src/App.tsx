@@ -10,6 +10,7 @@ import {
   DatabaseZap,
   FileText,
   FileUp,
+  Gauge,
   Globe2,
   KeyRound,
   LayoutDashboard,
@@ -20,17 +21,21 @@ import {
   MapPin,
   Menu,
   Moon,
+  Pencil,
   Plus,
   Radio,
   RefreshCw,
   Rocket,
+  Save,
   Search,
   Settings,
   ShieldCheck,
   Sparkles,
   Sun,
   Target,
+  Trash2,
   UploadCloud,
+  X,
   UserPlus,
   UserRound,
   WandSparkles,
@@ -55,7 +60,7 @@ import { KanbanBoard } from './components/KanbanBoard'
 import { filterAndSortJobs, scoreJobs } from './lib/scoring'
 import { defaultFilters } from './lib/defaults'
 import { useJobmatchStore } from './store/useJobmatchStore'
-import type { Application, Job, LiveJobSourceResult, ParsedCvPayload, ScoredJob } from './types'
+import type { Application, CvProfile, CvSkill, Job, LiveJobSourceResult, ParsedCvPayload, ScoredJob } from './types'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -71,27 +76,55 @@ const brandTagline = 'Upload. Match. Apply smarter.'
 
 type ThemeMode = 'dark' | 'light'
 
+const countryCityOptions = [
+  { country: 'Remote', cities: ['Remote'] },
+  { country: 'United States', cities: ['Any city', 'New York', 'San Francisco', 'Los Angeles', 'Chicago', 'Austin', 'Seattle', 'Boston', 'Dallas', 'Denver', 'Atlanta', 'Miami'] },
+  { country: 'Pakistan', cities: ['Any city', 'Karachi', 'Lahore', 'Islamabad', 'Rawalpindi', 'Faisalabad', 'Peshawar', 'Multan', 'Hyderabad', 'Quetta'] },
+  { country: 'India', cities: ['Any city', 'Bengaluru', 'Mumbai', 'Delhi', 'Hyderabad', 'Pune', 'Chennai', 'Gurugram', 'Noida', 'Ahmedabad', 'Kolkata'] },
+  { country: 'United Kingdom', cities: ['Any city', 'London', 'Manchester', 'Birmingham', 'Leeds', 'Glasgow', 'Edinburgh', 'Bristol', 'Liverpool'] },
+  { country: 'Canada', cities: ['Any city', 'Toronto', 'Vancouver', 'Montreal', 'Calgary', 'Ottawa', 'Edmonton', 'Waterloo'] },
+  { country: 'United Arab Emirates', cities: ['Any city', 'Dubai', 'Abu Dhabi', 'Sharjah', 'Ajman'] },
+  { country: 'Germany', cities: ['Any city', 'Berlin', 'Munich', 'Hamburg', 'Frankfurt', 'Cologne', 'Stuttgart', 'Dusseldorf'] },
+  { country: 'Australia', cities: ['Any city', 'Sydney', 'Melbourne', 'Brisbane', 'Perth', 'Adelaide', 'Canberra'] },
+  { country: 'Singapore', cities: ['Singapore'] },
+  { country: 'Saudi Arabia', cities: ['Any city', 'Riyadh', 'Jeddah', 'Dammam', 'Khobar'] },
+  { country: 'Netherlands', cities: ['Any city', 'Amsterdam', 'Rotterdam', 'Utrecht', 'Eindhoven', 'The Hague'] },
+  { country: 'France', cities: ['Any city', 'Paris', 'Lyon', 'Marseille', 'Toulouse', 'Lille'] },
+]
+
 function App() {
   const location = useLocation()
   const authStatus = useJobmatchStore((state) => state.authStatus)
-  const workspaceStatus = useJobmatchStore((state) => state.workspaceStatus)
-  const authMessage = useJobmatchStore((state) => state.authMessage)
   const initializeAuth = useJobmatchStore((state) => state.initializeAuth)
+  const hasWorkspaceSnapshot = useJobmatchStore((state) =>
+    Boolean(
+      state.userId ||
+        state.profile.id ||
+        state.activeCv.id ||
+        state.cvs.length ||
+        state.jobs.length ||
+        state.applications.length,
+    ),
+  )
 
   useEffect(() => {
     void initializeAuth()
   }, [initializeAuth])
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }, [location.pathname])
+
   if (location.pathname === '/') {
     return <LandingPage />
   }
 
-  if (location.pathname === '/auth' || authStatus === 'unauthenticated' || authStatus === 'error') {
-    return <AuthPage />
+  if (authStatus === 'loading' && !hasWorkspaceSnapshot) {
+    return <WorkspaceBootFrame />
   }
 
-  if (authStatus === 'loading' || workspaceStatus === 'loading') {
-    return <LoadingScreen message={authMessage || 'Loading your workspace...'} />
+  if (location.pathname === '/auth' || authStatus === 'unauthenticated' || authStatus === 'error') {
+    return <AuthPage />
   }
 
   return (
@@ -106,6 +139,43 @@ function App() {
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
     </AppShell>
+  )
+}
+
+function WorkspaceBootFrame() {
+  useThemeMode()
+
+  return (
+    <main className="min-h-screen bg-[#101218] text-white">
+      <div className="grid min-h-screen lg:grid-cols-[260px_1fr]">
+        <aside className="hidden border-r border-white/10 bg-[#171a27] p-4 lg:block">
+          <BrandLogo onDark />
+          <div className="mt-7 space-y-2">
+            {navItems.slice(0, 5).map((item) => (
+              <div key={item.to} className="h-12 animate-pulse rounded-md bg-white/[0.07]" />
+            ))}
+          </div>
+        </aside>
+        <section className="min-w-0">
+          <header className="flex h-16 items-center justify-between border-b border-white/10 bg-[#101218]/95 px-4 md:px-6">
+            <BrandLogo compact onDark />
+            <div className="flex gap-3">
+              <div className="h-9 w-9 animate-pulse rounded-md bg-white/10" />
+              <div className="h-9 w-24 animate-pulse rounded-md bg-white/10" />
+            </div>
+          </header>
+          <div className="space-y-5 p-4 md:p-6">
+            <div className="h-32 animate-pulse rounded-md border border-white/10 bg-white/[0.08]" />
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="h-28 animate-pulse rounded-md border border-white/10 bg-white/[0.08]" />
+              <div className="h-28 animate-pulse rounded-md border border-white/10 bg-white/[0.08]" />
+              <div className="h-28 animate-pulse rounded-md border border-white/10 bg-white/[0.08]" />
+            </div>
+            <div className="h-72 animate-pulse rounded-md border border-white/10 bg-white/[0.08]" />
+          </div>
+        </section>
+      </div>
+    </main>
   )
 }
 
@@ -145,7 +215,7 @@ function ThemeToggle() {
   )
 }
 
-function BrandLogo({ compact = false }: { compact?: boolean }) {
+function BrandLogo({ compact = false, onDark = false }: { compact?: boolean; onDark?: boolean }) {
   return (
     <div className="flex items-center gap-3">
       <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary text-white shadow-soft">
@@ -156,8 +226,8 @@ function BrandLogo({ compact = false }: { compact?: boolean }) {
       </div>
       {!compact ? (
         <div>
-          <p className="text-lg font-extrabold leading-5 text-ink">Jobmatcher</p>
-          <p className="text-xs font-medium text-muted">{brandTagline}</p>
+          <p className={`text-lg font-extrabold leading-5 ${onDark ? 'text-white' : 'text-ink'}`}>Jobmatcher</p>
+          <p className={`text-xs font-medium ${onDark ? 'text-slate-300' : 'text-muted'}`}>{brandTagline}</p>
         </div>
       ) : null}
     </div>
@@ -191,14 +261,14 @@ function LandingPage() {
           src="https://images.unsplash.com/photo-1551836022-deb4988cc6c0?auto=format&fit=crop&w=1800&q=85"
           alt=""
         />
-        <div className="absolute inset-0 bg-gradient-to-br from-bg via-bg/82 to-bg/30" />
+        <div className="absolute inset-0 bg-gradient-to-br from-[#070913] via-[#101422]/88 to-[#101422]/35" />
 
         <header className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-5 py-5 md:px-8">
-          <BrandLogo />
+          <BrandLogo onDark />
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <NavLink
-              className="inline-flex h-10 items-center gap-2 rounded-md border border-white/15 bg-white/8 px-4 text-sm font-semibold text-ink backdrop-blur transition hover:border-primary"
+              className="inline-flex h-10 items-center gap-2 rounded-md border border-white/20 bg-white/10 px-4 text-sm font-semibold text-white backdrop-blur transition hover:border-primary"
               to="/auth?mode=signin"
             >
               <LogIn size={16} /> Sign in
@@ -232,19 +302,19 @@ function LandingPage() {
                 Upload CV <ArrowRight size={17} />
               </NavLink>
               <NavLink
-                className="inline-flex h-12 items-center gap-2 rounded-md border border-white/15 bg-white/8 px-5 text-sm font-bold text-ink backdrop-blur transition hover:border-primary"
-                to="/auth?mode=signin"
-              >
+              className="inline-flex h-12 items-center gap-2 rounded-md border border-white/20 bg-white/10 px-5 text-sm font-bold text-white backdrop-blur transition hover:border-primary"
+              to="/auth?mode=signin"
+            >
                 Explore jobs <Search size={17} />
               </NavLink>
             </div>
           </div>
 
-          <div className="rounded-md border border-white/12 bg-panel/75 p-4 shadow-soft backdrop-blur">
+          <div className="rounded-md border border-white/15 bg-[#101422]/95 p-4 text-white shadow-soft backdrop-blur">
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <p className="text-sm text-muted">Live matching preview</p>
-                <p className="font-semibold text-ink">Senior Frontend Engineer</p>
+                <p className="text-sm text-slate-300">Live matching preview</p>
+                <p className="font-semibold text-white">Senior Frontend Engineer</p>
               </div>
               <div className="rounded-md border border-success/30 bg-success/10 px-3 py-2 font-mono text-xl font-bold text-success">
                 92%
@@ -256,15 +326,15 @@ function LandingPage() {
                 ['Product Frontend Engineer', 'Hybrid', 'Vite, Tailwind, Charts'],
                 ['AI Workflow Developer', 'Remote', 'Node.js, PostgreSQL, REST'],
               ].map(([title, location, skills]) => (
-                <div key={title} className="rounded-md border border-line bg-bg/70 p-4">
+                <div key={title} className="rounded-md border border-white/10 bg-black/35 p-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="font-semibold text-ink">{title}</p>
-                      <p className="mt-1 text-xs text-muted">{location}</p>
+                      <p className="font-semibold text-white">{title}</p>
+                      <p className="mt-1 text-xs text-slate-400">{location}</p>
                     </div>
                     <BriefcaseBusiness className="text-primary" size={20} />
                   </div>
-                  <p className="mt-3 text-xs text-muted">{skills}</p>
+                  <p className="mt-3 text-xs text-slate-400">{skills}</p>
                 </div>
               ))}
             </div>
@@ -330,10 +400,10 @@ function AuthPage() {
           src="https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1600&q=85"
           alt=""
         />
-        <div className="absolute inset-0 bg-gradient-to-br from-bg via-bg/80 to-bg/20" />
+        <div className="absolute inset-0 bg-gradient-to-br from-[#070913] via-[#101422]/86 to-[#101422]/28" />
         <div className="relative z-10 flex h-full flex-col justify-between p-10">
           <NavLink className="flex items-center gap-3" to="/">
-            <BrandLogo />
+            <BrandLogo onDark />
           </NavLink>
           <div>
             <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
@@ -433,17 +503,6 @@ function AuthPage() {
           </div>
         </div>
       </section>
-    </main>
-  )
-}
-
-function LoadingScreen({ message }: { message: string }) {
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-bg px-5 text-ink">
-      <div className="panel w-full max-w-sm p-6 text-center">
-        <RefreshCw className="mx-auto animate-spin text-primary" size={28} />
-        <p className="mt-4 font-semibold">{message}</p>
-      </div>
     </main>
   )
 }
@@ -593,7 +652,11 @@ function useLiveJobSearch() {
 
   const runLiveSearch = async (goToJobs = false) => {
     const { profile, activeCv } = useJobmatchStore.getState()
-    const skills = activeCv.skills.map((skill) => skill.skillName).filter(Boolean).slice(0, 20)
+    const skills = [...activeCv.skills]
+      .sort((a, b) => (b.skillRank || 0) - (a.skillRank || 0))
+      .map((skill) => skill.skillName)
+      .filter(Boolean)
+      .slice(0, 20)
     if (!skills.length) {
       setStatus('error')
       setMessage('Upload a CV or add comma-separated skills before live job search.')
@@ -603,7 +666,7 @@ function useLiveJobSearch() {
     const query = profile.targetRole || skills.slice(0, 3).join(' ')
     const params = new URLSearchParams({
       query,
-      location: profile.preferredRemote ? 'Remote' : profile.location,
+      location: profile.location || 'Remote',
       skills: skills.join(','),
       experienceYears: String(activeCv.totalYearsExperience || 0),
       limit: '40',
@@ -950,8 +1013,12 @@ function CvHubPage() {
   const cvs = useJobmatchStore((state) => state.cvs)
   const activeCv = useJobmatchStore((state) => state.activeCv)
   const activateCv = useJobmatchStore((state) => state.activateCv)
+  const deleteCv = useJobmatchStore((state) => state.deleteCv)
+  const clearCvData = useJobmatchStore((state) => state.clearCvData)
   const addParsedCv = useJobmatchStore((state) => state.addParsedCv)
-  const addManualSkills = useJobmatchStore((state) => state.addManualSkills)
+  const upsertSkill = useJobmatchStore((state) => state.upsertSkill)
+  const removeSkill = useJobmatchStore((state) => state.removeSkill)
+  const setActiveExperience = useJobmatchStore((state) => state.setActiveExperience)
   const updateProfile = useJobmatchStore((state) => state.updateProfile)
   const liveSearch = useLiveJobSearch()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -959,44 +1026,57 @@ function CvHubPage() {
   const [parseMessage, setParseMessage] = useState('')
   const [lastParsedCv, setLastParsedCv] = useState<ParsedCvPayload | null>(null)
   const [targetRole, setTargetRole] = useState(profile.targetRole)
-  const [location, setLocation] = useState(profile.location)
+  const [selectedCountry, setSelectedCountry] = useState(() => parseLocationSelection(profile.location).country)
+  const [selectedCity, setSelectedCity] = useState(() => parseLocationSelection(profile.location).city)
   const [preferredRemote, setPreferredRemote] = useState(profile.preferredRemote)
-  const [manualSkills, setManualSkills] = useState('')
+  const [experienceYears, setExperienceYears] = useState(activeCv.totalYearsExperience || 0)
   const [profileMessage, setProfileMessage] = useState('')
+  const [cvDataMessage, setCvDataMessage] = useState('')
+  const selectedCities = getCitiesForCountry(selectedCountry)
+  const selectedLocation = formatSelectedLocation(selectedCountry, selectedCity)
 
   useEffect(() => {
+    const parsedLocation = parseLocationSelection(profile.location)
     setTargetRole(profile.targetRole)
-    setLocation(profile.location)
+    setSelectedCountry(parsedLocation.country)
+    setSelectedCity(parsedLocation.city)
     setPreferredRemote(profile.preferredRemote)
   }, [profile.targetRole, profile.location, profile.preferredRemote])
 
+  useEffect(() => {
+    setExperienceYears(activeCv.totalYearsExperience || 0)
+  }, [activeCv.totalYearsExperience])
+
   const saveProfileSignal = () => {
+    const nextExperienceYears = clampExperienceYears(experienceYears)
     updateProfile({
       targetRole: targetRole.trim() || profile.targetRole,
-      location: location.trim() || profile.location,
+      location: selectedLocation,
       preferredRemote,
     })
+    setExperienceYears(nextExperienceYears)
+    setActiveExperience(nextExperienceYears)
 
-    const skills = manualSkills
-      .split(',')
-      .map((skill) => skill.trim())
-      .filter(Boolean)
-
-    if (skills.length) {
-      addManualSkills(skills, Math.max(0, activeCv.totalYearsExperience || 0))
-      setManualSkills('')
-    }
-
-    setProfileMessage(
-      skills.length
-        ? `Added ${skills.length} manual skill${skills.length === 1 ? '' : 's'}. Experience remains ${activeCv.totalYearsExperience || 0} parsed years.`
-        : `Saved profile signal. Experience remains ${activeCv.totalYearsExperience || 0} parsed years.`,
-    )
+    setProfileMessage(`Saved profile signal for ${selectedLocation} with ${nextExperienceYears} years experience.`)
   }
 
   const searchFromCv = () => {
     saveProfileSignal()
     void liveSearch.runLiveSearch(true)
+  }
+
+  const handleDeleteCv = (cv: CvProfile) => {
+    deleteCv(cv.id)
+    setCvDataMessage(`${cv.label} was removed from your CV data.`)
+    if (lastParsedCv?.filename === cv.filename) setLastParsedCv(null)
+  }
+
+  const handleClearCvData = () => {
+    clearCvData()
+    setLastParsedCv(null)
+    setParseStatus('idle')
+    setParseMessage('')
+    setCvDataMessage('All CV versions, extracted skills, experience, and CV match data were cleared from your account.')
   }
 
   const handleCvUpload = async (file: File) => {
@@ -1031,6 +1111,26 @@ function CvHubPage() {
 
   return (
     <div className="space-y-6">
+      <section className="panel overflow-hidden">
+        <div className="grid gap-5 bg-gradient-to-br from-primary/18 via-panel to-panel p-5 md:grid-cols-[1fr_auto] md:p-6">
+          <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary">
+              <Gauge size={16} />
+              Skills, rank, and CV signal
+            </div>
+            <h2 className="text-2xl font-bold text-ink md:text-3xl">CV Hub</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
+              Upload your CV, tune the role signal, and keep every skill ranked with a draggable percentage bar.
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-3 text-center md:min-w-[360px]">
+            <CvMetric label="Skills" value={activeCv.skills.length} />
+            <CvMetric label="Avg rank" value={`${averageSkillRank(activeCv.skills)}%`} />
+            <CvMetric label="Years" value={activeCv.totalYearsExperience || 0} />
+          </div>
+        </div>
+      </section>
+
       <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="panel p-5">
           <div className="mb-5 flex items-center gap-3">
@@ -1079,6 +1179,7 @@ function CvHubPage() {
                 }}
               />
               <button
+                type="button"
                 className="primary-button mt-4"
                 disabled={parseStatus === 'uploading'}
                 onClick={() => fileInputRef.current?.click()}
@@ -1118,18 +1219,56 @@ function CvHubPage() {
                 </span>
               </label>
               <label className="field-label">
-                Location
+                Experience years
                 <span className="field-shell normal-case">
-                  <MapPin size={16} className="text-muted" />
-                  <input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="Remote" />
+                  <BriefcaseBusiness size={16} className="text-muted" />
+                  <input
+                    type="number"
+                    min={0}
+                    max={60}
+                    step={1}
+                    value={experienceYears}
+                    onChange={(event) => setExperienceYears(clampExperienceYears(event.target.value))}
+                    placeholder="5"
+                  />
                 </span>
               </label>
-              <div className="rounded-md border border-line bg-bg/60 px-3 py-2">
-                <p className="text-xs font-medium uppercase text-muted">Parsed experience</p>
-                <p className="mt-1 text-lg font-semibold text-ink">
-                  {activeCv.totalYearsExperience || 0} {activeCv.totalYearsExperience === 1 ? 'year' : 'years'}
-                </p>
-              </div>
+              <label className="field-label">
+                Country
+                <span className="field-shell normal-case">
+                  <Globe2 size={16} className="text-muted" />
+                  <select
+                    value={selectedCountry}
+                    onChange={(event) => {
+                      const country = event.target.value
+                      setSelectedCountry(country)
+                      setSelectedCity(getCitiesForCountry(country)[0] || '')
+                    }}
+                  >
+                    {countryCityOptions.map((option) => (
+                      <option key={option.country} value={option.country}>
+                        {option.country}
+                      </option>
+                    ))}
+                  </select>
+                </span>
+              </label>
+              <label className="field-label">
+                City
+                <span className="field-shell normal-case">
+                  <MapPin size={16} className="text-muted" />
+                  <select
+                    value={selectedCity}
+                    onChange={(event) => setSelectedCity(event.target.value)}
+                  >
+                    {selectedCities.map((city) => (
+                      <option key={city} value={city}>
+                        {city}
+                      </option>
+                    ))}
+                  </select>
+                </span>
+              </label>
               <label className="flex min-h-11 items-center gap-3 rounded-md border border-line bg-bg/70 px-3 text-sm font-medium text-ink transition hover:border-primary/60 sm:mt-6">
                 <input
                   type="checkbox"
@@ -1140,17 +1279,15 @@ function CvHubPage() {
                 Remote preferred
               </label>
             </div>
-            <label className="field-label mt-4">
-              Manual skills
-              <textarea
-                className="control mt-2 min-h-24 w-full rounded-md px-3 py-3 text-sm normal-case"
-                placeholder="React, TypeScript, Node.js, PostgreSQL"
-                value={manualSkills}
-                onChange={(event) => setManualSkills(event.target.value)}
-              />
-            </label>
+            <div className="field-label mt-4">
+              Matching note
+              <p className="mt-2 rounded-md border border-line bg-bg/60 p-3 text-sm normal-case leading-6 text-muted">
+                Skill editing and ranking is handled below. Job search uses the active CV skills, rank signal, target role, and location.
+              </p>
+            </div>
             <div className="mt-4 flex flex-wrap gap-2">
               <button
+                type="button"
                 className="secondary-button"
                 onClick={saveProfileSignal}
               >
@@ -1158,6 +1295,7 @@ function CvHubPage() {
                 Save signal
               </button>
               <button
+                type="button"
                 className="primary-button"
                 disabled={liveSearch.status === 'loading'}
                 onClick={searchFromCv}
@@ -1177,29 +1315,59 @@ function CvHubPage() {
           </div>
 
           <div className="panel p-5">
-            <h2 className="text-lg font-semibold text-ink">CV versions</h2>
+            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+              <div>
+                <h2 className="text-lg font-semibold text-ink">CV versions</h2>
+                <p className="mt-1 text-sm text-muted">Every CV row belongs to this signed-in user account.</p>
+              </div>
+              <button
+                type="button"
+                className="secondary-button border-danger/45 text-danger hover:border-danger hover:bg-danger/10"
+                disabled={!cvs.length}
+                onClick={handleClearCvData}
+              >
+                <Trash2 size={16} />
+                Clear all CV data
+              </button>
+            </div>
             <div className="mt-4 space-y-3">
               {cvs.length ? (
                 cvs.map((cv) => (
-                  <button
+                  <article
                     key={cv.id}
-                    className={`w-full rounded-md border p-4 text-left transition ${
+                    className={`rounded-md border p-4 transition ${
                       cv.isActive ? 'border-primary bg-primary/10' : 'border-line bg-bg/60 hover:border-primary'
                     }`}
-                    onClick={() => {
-                      activateCv(cv.id)
-                    }}
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <p className="font-semibold text-ink">{cv.label}</p>
                         <p className="mt-1 text-xs text-muted">
-                          v{cv.version} · {cv.parseStatus} · {cv.skills.length} skills
+                          v{cv.version} · {cv.parseStatus} · {cv.skills.length} skills · {cv.totalYearsExperience || 0} years
                         </p>
                       </div>
-                      {cv.isActive ? <span className="rounded-md bg-success/15 px-2 py-1 text-xs text-success">Active</span> : null}
+                      <div className="flex shrink-0 flex-wrap gap-2">
+                        {cv.isActive ? (
+                          <span className="inline-flex h-9 items-center rounded-md bg-success/15 px-3 text-xs font-semibold text-success">
+                            Active
+                          </span>
+                        ) : (
+                          <button type="button" className="secondary-button h-9 px-3" onClick={() => activateCv(cv.id)}>
+                            <CheckCircle2 size={15} />
+                            Activate
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="secondary-button h-9 border-danger/45 px-3 text-danger hover:border-danger hover:bg-danger/10"
+                          onClick={() => handleDeleteCv(cv)}
+                        >
+                          <Trash2 size={15} />
+                          Delete
+                        </button>
+                      </div>
                     </div>
-                  </button>
+                  </article>
                 ))
               ) : (
                 <p className="rounded-md border border-line bg-bg/60 p-4 text-sm text-muted">
@@ -1207,33 +1375,31 @@ function CvHubPage() {
                 </p>
               )}
             </div>
+            {cvDataMessage ? <p className="mt-3 text-xs text-muted">{cvDataMessage}</p> : null}
           </div>
         </div>
       </section>
 
       <section className="panel p-5">
-        <h2 className="text-lg font-semibold text-ink">Extracted skills</h2>
+        <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
+          <div>
+            <h2 className="text-lg font-semibold text-ink">Skills editor</h2>
+            <p className="mt-1 text-sm text-muted">Add, update, remove, and rank each skill from 0% to 100%.</p>
+          </div>
+          <span className="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary">
+            {activeCv.skills.length} active skills
+          </span>
+        </div>
         {lastParsedCv?.warnings.length ? (
           <div className="mt-4 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
             {lastParsedCv.warnings.join(' ')}
           </div>
         ) : null}
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {activeCv.skills.length ? (
-            activeCv.skills.map((skill) => (
-              <div key={skill.skillName} className="rounded-md border border-line bg-bg/60 p-4">
-                <p className="font-semibold text-ink">{skill.skillName}</p>
-                <p className="mt-1 text-xs text-muted">
-                  {skill.skillType} · {skill.confidence}
-                </p>
-              </div>
-            ))
-          ) : (
-            <p className="rounded-md border border-line bg-bg/60 p-4 text-sm text-muted sm:col-span-2 xl:col-span-4">
-              No skills yet. Upload a CV or add comma-separated skills in Candidate signal.
-            </p>
-          )}
-        </div>
+        <SkillManager
+          skills={activeCv.skills}
+          onSaveSkill={upsertSkill}
+          onRemoveSkill={removeSkill}
+        />
       </section>
 
       <section>
@@ -1263,6 +1429,348 @@ function CvHubPage() {
       </section>
     </div>
   )
+}
+
+function parseLocationSelection(location: string) {
+  const raw = location.trim()
+  if (!raw || raw.toLowerCase() === 'remote') return { country: 'Remote', city: 'Remote' }
+
+  const parts = raw.split(',').map((part) => part.trim()).filter(Boolean)
+  const countryFromParts = parts[1] || parts[0]
+  const directCountry = countryCityOptions.find((option) => option.country.toLowerCase() === countryFromParts.toLowerCase())
+  if (directCountry) {
+    const city = parts[1] ? parts[0] : directCountry.cities[0]
+    return {
+      country: directCountry.country,
+      city: directCountry.cities.includes(city) ? city : directCountry.cities[0],
+    }
+  }
+
+  const cityMatch = countryCityOptions.find((option) =>
+    option.cities.some((city) => city.toLowerCase() === raw.toLowerCase()),
+  )
+
+  if (cityMatch) return { country: cityMatch.country, city: raw }
+
+  return { country: 'Remote', city: 'Remote' }
+}
+
+function getCitiesForCountry(country: string) {
+  return countryCityOptions.find((option) => option.country === country)?.cities || ['Any city']
+}
+
+function formatSelectedLocation(country: string, city: string) {
+  if (country === 'Remote') return 'Remote'
+  if (!city || city === 'Any city') return country
+  return `${city}, ${country}`
+}
+
+function clampExperienceYears(value: number | string) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return 0
+  return Math.min(Math.max(Math.round(number), 0), 60)
+}
+
+const skillTypeOptions: CvSkill['skillType'][] = ['technical', 'framework', 'tool', 'soft', 'language', 'certification']
+
+function CvMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-md border border-line bg-bg/65 p-4">
+      <p className="text-xs font-semibold uppercase text-muted">{label}</p>
+      <p className="mt-1 text-2xl font-bold text-ink">{value}</p>
+    </div>
+  )
+}
+
+function SkillManager({
+  skills,
+  onSaveSkill,
+  onRemoveSkill,
+}: {
+  skills: CvSkill[]
+  onSaveSkill: (skill: CvSkill, previousCanonical?: string) => void
+  onRemoveSkill: (skillCanonical: string) => void
+}) {
+  const [newSkill, setNewSkill] = useState('')
+  const [newRank, setNewRank] = useState(75)
+  const [newType, setNewType] = useState<CvSkill['skillType']>('technical')
+  const sortedSkills = useMemo(
+    () => [...skills].sort((a, b) => (b.skillRank || 0) - (a.skillRank || 0) || a.skillName.localeCompare(b.skillName)),
+    [skills],
+  )
+
+  const addSkills = () => {
+    const names = newSkill
+      .split(',')
+      .map((skill) => skill.trim())
+      .filter(Boolean)
+    if (!names.length) return
+
+    names.forEach((name) =>
+      onSaveSkill({
+        skillName: name,
+        skillCanonical: name,
+        skillType: newType,
+        yearsUsed: 0,
+        skillRank: newRank,
+        confidence: rankToConfidenceLabel(newRank),
+        isManual: true,
+      }),
+    )
+    setNewSkill('')
+  }
+
+  return (
+    <div className="mt-5 space-y-4">
+      <div className="grid gap-3 rounded-md border border-line bg-bg/60 p-4 lg:grid-cols-[minmax(0,1fr)_180px_220px_auto] lg:items-end">
+        <label className="field-label">
+          Add skill
+          <span className="field-shell normal-case">
+            <Sparkles size={16} className="text-muted" />
+            <input
+              value={newSkill}
+              onChange={(event) => setNewSkill(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  addSkills()
+                }
+              }}
+              placeholder="React, TypeScript, Node.js"
+            />
+          </span>
+        </label>
+        <label className="field-label">
+          Type
+          <select
+            className="control mt-2 h-11 w-full rounded-md px-3 text-sm normal-case"
+            value={newType}
+            onChange={(event) => setNewType(event.target.value as CvSkill['skillType'])}
+          >
+            {skillTypeOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+        <SkillRankSlider label="Initial rank" value={newRank} onChange={setNewRank} />
+        <button type="button" className="primary-button h-11" onClick={addSkills}>
+          <Plus size={16} />
+          Add
+        </button>
+      </div>
+
+      {sortedSkills.length ? (
+        <div className="grid gap-3">
+          {sortedSkills.map((skill) => (
+            <SkillEditorRow
+              key={skill.skillCanonical}
+              skill={skill}
+              onSaveSkill={onSaveSkill}
+              onRemoveSkill={onRemoveSkill}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-md border border-dashed border-line bg-bg/50 p-8 text-center">
+          <Sparkles className="mx-auto text-primary" size={28} />
+          <p className="mt-3 font-semibold text-ink">No skills yet</p>
+          <p className="mt-1 text-sm text-muted">Upload a CV or add comma-separated skills above.</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SkillEditorRow({
+  skill,
+  onSaveSkill,
+  onRemoveSkill,
+}: {
+  skill: CvSkill
+  onSaveSkill: (skill: CvSkill, previousCanonical?: string) => void
+  onRemoveSkill: (skillCanonical: string) => void
+}) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [draftName, setDraftName] = useState(skill.skillName)
+  const [draftType, setDraftType] = useState<CvSkill['skillType']>(skill.skillType)
+  const [rank, setRank] = useState(skill.skillRank || 70)
+
+  useEffect(() => {
+    setDraftName(skill.skillName)
+    setDraftType(skill.skillType)
+    setRank(skill.skillRank || 70)
+  }, [skill.skillName, skill.skillRank, skill.skillType])
+
+  const save = (nextRank = rank) => {
+    const name = draftName.trim()
+    if (!name) return
+    onSaveSkill(
+      {
+        ...skill,
+        skillName: name,
+        skillCanonical: name,
+        skillType: draftType,
+        skillRank: nextRank,
+        confidence: rankToConfidenceLabel(nextRank),
+        isManual: true,
+      },
+      skill.skillCanonical,
+    )
+    setIsEditing(false)
+  }
+
+  const updateRank = (nextRank: number) => {
+    setRank(nextRank)
+  }
+
+  return (
+    <article className="rounded-md border border-line bg-bg/60 p-4 transition hover:border-primary/50">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.9fr)_auto] lg:items-center">
+        <div className="min-w-0">
+          {isEditing ? (
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_160px]">
+              <label className="field-label">
+                Skill
+                <input
+                  className="control mt-2 h-10 w-full rounded-md px-3 text-sm normal-case"
+                  value={draftName}
+                  onChange={(event) => setDraftName(event.target.value)}
+                />
+              </label>
+              <label className="field-label">
+                Type
+                <select
+                  className="control mt-2 h-10 w-full rounded-md px-3 text-sm normal-case"
+                  value={draftType}
+                  onChange={(event) => setDraftType(event.target.value as CvSkill['skillType'])}
+                >
+                  {skillTypeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-base font-semibold text-ink">{skill.skillName}</h3>
+                <span className="rounded-md border border-line bg-panel px-2 py-1 text-xs capitalize text-muted">
+                  {skill.skillType}
+                </span>
+              </div>
+              <p className="mt-1 text-xs capitalize text-muted">{skill.confidence} confidence</p>
+            </>
+          )}
+        </div>
+
+        <SkillRankSlider
+          label="Skill rank"
+          value={rank}
+          onChange={updateRank}
+          onCommit={(nextRank) => save(nextRank)}
+        />
+
+        <div className="flex items-center gap-2 lg:justify-end">
+          {isEditing ? (
+            <>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => save()}
+                aria-label={`Save ${skill.skillName}`}
+                title="Save"
+              >
+                <Save size={16} />
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => {
+                  setDraftName(skill.skillName)
+                  setDraftType(skill.skillType)
+                  setRank(skill.skillRank || 70)
+                  setIsEditing(false)
+                }}
+                aria-label="Cancel edit"
+                title="Cancel"
+              >
+                <X size={16} />
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="icon-button"
+              onClick={() => setIsEditing(true)}
+              aria-label={`Edit ${skill.skillName}`}
+              title="Edit"
+            >
+              <Pencil size={16} />
+            </button>
+          )}
+          <button
+            type="button"
+            className="icon-button hover:border-danger hover:bg-danger/10 hover:text-danger"
+            onClick={() => onRemoveSkill(skill.skillCanonical)}
+            aria-label={`Remove ${skill.skillName}`}
+            title="Remove"
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
+      </div>
+    </article>
+  )
+}
+
+function SkillRankSlider({
+  label,
+  value,
+  onChange,
+  onCommit,
+}: {
+  label: string
+  value: number
+  onChange: (value: number) => void
+  onCommit?: (value: number) => void
+}) {
+  return (
+    <label className="block">
+      <div className="mb-2 flex items-center justify-between gap-3 text-xs font-semibold uppercase text-muted">
+        <span>{label}</span>
+        <span className="font-mono text-primary">{value}%</span>
+      </div>
+      <input
+        className="skill-range w-full"
+        style={{ '--rank': `${value}%` } as React.CSSProperties}
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        onMouseUp={(event) => onCommit?.(Number(event.currentTarget.value))}
+        onTouchEnd={(event) => onCommit?.(Number(event.currentTarget.value))}
+        onBlur={(event) => onCommit?.(Number(event.currentTarget.value))}
+        aria-label={label}
+      />
+    </label>
+  )
+}
+
+function averageSkillRank(skills: CvSkill[]) {
+  if (!skills.length) return 0
+  return Math.round(skills.reduce((total, skill) => total + (skill.skillRank || 0), 0) / skills.length)
+}
+
+function rankToConfidenceLabel(rank: number): CvSkill['confidence'] {
+  if (rank >= 78) return 'high'
+  if (rank >= 45) return 'medium'
+  return 'low'
 }
 
 function TrackerPage() {

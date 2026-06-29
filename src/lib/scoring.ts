@@ -78,6 +78,9 @@ export function titleSimilarity(targetRole: string, jobTitle: string) {
 
 export function computeMatch(profile: UserProfile, cv: CvProfile, job: Job): JobMatch {
   const userSkills = cv.skills.map((skill) => skill.skillCanonical || skill.skillName)
+  const userSkillRanks = new Map(
+    cv.skills.map((skill) => [normaliseSkill(skill.skillCanonical || skill.skillName), Math.min(Math.max(skill.skillRank || 70, 0), 100)]),
+  )
   const requiredSkills = job.skillsRequired.filter((skill) => skill.required)
   const optionalSkills = job.skillsRequired.filter((skill) => !skill.required)
   const matchedRequired = requiredSkills.filter((required) =>
@@ -92,7 +95,7 @@ export function computeMatch(profile: UserProfile, cv: CvProfile, job: Job): Job
 
   const hasCoreRequiredSkill = requiredSkills.some((skill) => !isLowSignalSkill(skill.skill))
   const requiredWeight = requiredSkills.reduce((total, skill) => total + skill.weight, 0) || 1
-  const matchedWeight = matchedRequired.reduce((total, skill) => total + skill.weight, 0)
+  const matchedWeight = matchedRequired.reduce((total, skill) => total + skill.weight * skillRankMultiplier(skill.skill, userSkillRanks), 0)
   const optionalBonus = Math.min(matchedOptional.length * 1.5, 5)
   const rawSkillScore = clamp(Math.round((matchedWeight / requiredWeight) * 50 + optionalBonus), 0, 50)
   const skillScore = hasCoreRequiredSkill || !requiredSkills.length ? rawSkillScore : Math.min(rawSkillScore, 12)
@@ -133,6 +136,11 @@ export function computeMatch(profile: UserProfile, cv: CvProfile, job: Job): Job
     missingSkills,
     matchSummary,
   }
+}
+
+function skillRankMultiplier(skill: string, userSkillRanks: Map<string, number>) {
+  const rank = userSkillRanks.get(normaliseSkill(skill)) ?? 70
+  return 0.7 + (rank / 100) * 0.3
 }
 
 function isLowSignalSkill(skill: string) {

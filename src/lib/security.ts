@@ -71,9 +71,16 @@ export function sanitiseSkill(skill: CvSkill): CvSkill {
     skillCanonical: sanitiseText(skill.skillCanonical || skill.skillName, 80),
     skillType: skill.skillType,
     yearsUsed: clampNumber(skill.yearsUsed, 0, 60, 0),
+    skillRank: Math.round(clampNumber(skill.skillRank ?? defaultSkillRank(skill), 0, 100, 70)),
     confidence: skill.confidence,
     isManual: Boolean(skill.isManual),
   }
+}
+
+function defaultSkillRank(skill: Pick<CvSkill, 'confidence' | 'yearsUsed'>) {
+  const confidenceBase = skill.confidence === 'high' ? 84 : skill.confidence === 'medium' ? 68 : 48
+  const yearBoost = Math.min(12, Math.round((Number(skill.yearsUsed) || 0) * 2))
+  return Math.min(96, confidenceBase + yearBoost)
 }
 
 export function sanitiseExperience(item: CvExperience): CvExperience {
