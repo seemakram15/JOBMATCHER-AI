@@ -57,6 +57,7 @@ import { FilterPanel } from './components/FilterPanel'
 import { JobCard } from './components/JobCard'
 import { JobDetailPanel } from './components/JobDetailPanel'
 import { KanbanBoard } from './components/KanbanBoard'
+import { PrettySelect } from './components/PrettySelect'
 import { filterAndSortJobs, scoreJobs } from './lib/scoring'
 import { defaultFilters } from './lib/defaults'
 import { useJobmatchStore } from './store/useJobmatchStore'
@@ -1235,39 +1236,28 @@ function CvHubPage() {
               </label>
               <label className="field-label">
                 Country
-                <span className="field-shell normal-case">
-                  <Globe2 size={16} className="text-muted" />
-                  <select
-                    value={selectedCountry}
-                    onChange={(event) => {
-                      const country = event.target.value
-                      setSelectedCountry(country)
-                      setSelectedCity(getCitiesForCountry(country)[0] || '')
-                    }}
-                  >
-                    {countryCityOptions.map((option) => (
-                      <option key={option.country} value={option.country}>
-                        {option.country}
-                      </option>
-                    ))}
-                  </select>
-                </span>
+                <PrettySelect
+                  className="mt-2 normal-case"
+                  value={selectedCountry}
+                  options={countryCityOptions.map((option) => ({ value: option.country, label: option.country }))}
+                  onChange={(country) => {
+                    setSelectedCountry(country)
+                    setSelectedCity(getCitiesForCountry(country)[0] || '')
+                  }}
+                  ariaLabel="Country"
+                  icon={<Globe2 size={16} />}
+                />
               </label>
               <label className="field-label">
                 City
-                <span className="field-shell normal-case">
-                  <MapPin size={16} className="text-muted" />
-                  <select
-                    value={selectedCity}
-                    onChange={(event) => setSelectedCity(event.target.value)}
-                  >
-                    {selectedCities.map((city) => (
-                      <option key={city} value={city}>
-                        {city}
-                      </option>
-                    ))}
-                  </select>
-                </span>
+                <PrettySelect
+                  className="mt-2 normal-case"
+                  value={selectedCity}
+                  options={selectedCities.map((city) => ({ value: city, label: city }))}
+                  onChange={setSelectedCity}
+                  ariaLabel="City"
+                  icon={<MapPin size={16} />}
+                />
               </label>
               <label className="flex min-h-11 items-center gap-3 rounded-md border border-line bg-bg/70 px-3 text-sm font-medium text-ink transition hover:border-primary/60 sm:mt-6">
                 <input
@@ -1473,6 +1463,11 @@ function clampExperienceYears(value: number | string) {
 
 const skillTypeOptions: CvSkill['skillType'][] = ['technical', 'framework', 'tool', 'soft', 'language', 'certification']
 
+const skillTypeSelectOptions = skillTypeOptions.map((option) => ({
+  value: option,
+  label: option.charAt(0).toUpperCase() + option.slice(1),
+}))
+
 function CvMetric({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-md border border-line bg-bg/65 p-4">
@@ -1542,17 +1537,13 @@ function SkillManager({
         </label>
         <label className="field-label">
           Type
-          <select
-            className="control mt-2 h-11 w-full rounded-md px-3 text-sm normal-case"
+          <PrettySelect<CvSkill['skillType']>
+            className="mt-2 normal-case"
             value={newType}
-            onChange={(event) => setNewType(event.target.value as CvSkill['skillType'])}
-          >
-            {skillTypeOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
+            options={skillTypeSelectOptions}
+            onChange={setNewType}
+            ariaLabel="Skill type"
+          />
         </label>
         <SkillRankSlider label="Initial rank" value={newRank} onChange={setNewRank} />
         <button type="button" className="primary-button h-11" onClick={addSkills}>
@@ -1641,17 +1632,13 @@ function SkillEditorRow({
               </label>
               <label className="field-label">
                 Type
-                <select
-                  className="control mt-2 h-10 w-full rounded-md px-3 text-sm normal-case"
+                <PrettySelect<CvSkill['skillType']>
+                  className="mt-2 normal-case"
                   value={draftType}
-                  onChange={(event) => setDraftType(event.target.value as CvSkill['skillType'])}
-                >
-                  {skillTypeOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
+                  options={skillTypeSelectOptions}
+                  onChange={setDraftType}
+                  ariaLabel={`${skill.skillName} skill type`}
+                />
               </label>
             </div>
           ) : (

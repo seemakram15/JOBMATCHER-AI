@@ -1,5 +1,6 @@
 import { BriefcaseBusiness, DollarSign, Layers3, RotateCcw, Search, SlidersHorizontal } from 'lucide-react'
 import type { ExperienceLevel, JobFilters, JobType, WorkMode } from '../types'
+import { PrettySelect } from './PrettySelect'
 
 interface FilterPanelProps {
   filters: JobFilters
@@ -26,6 +27,21 @@ const levels: { value: ExperienceLevel; label: string }[] = [
   { value: 'mid', label: 'Mid' },
   { value: 'senior', label: 'Senior' },
   { value: 'lead', label: 'Lead' },
+]
+
+const datePostedOptions: { value: JobFilters['datePosted']; label: string }[] = [
+  { value: 'any', label: 'Any time' },
+  { value: 'today', label: 'Today' },
+  { value: '3days', label: '3 days' },
+  { value: 'week', label: 'Last week' },
+  { value: 'month', label: 'Last month' },
+]
+
+const sortOptions: { value: JobFilters['sort']; label: string }[] = [
+  { value: 'score', label: 'Score' },
+  { value: 'date', label: 'Date' },
+  { value: 'salary', label: 'Salary' },
+  { value: 'company', label: 'Company' },
 ]
 
 function toggleValue<T extends string>(values: T[], value: T) {
@@ -146,48 +162,37 @@ export function FilterPanel({ filters, sources, onChange, onReset }: FilterPanel
       </FilterGroup>
 
       <FilterGroup title="Source" icon={<Search size={14} />}>
-        <select
-          className="control h-10 w-full rounded-md px-3 text-sm"
+        <PrettySelect
           value={filters.sources[0] ?? ''}
-          onChange={(event) => onChange({ sources: event.target.value ? [event.target.value] : [] })}
-          aria-label="Source platform"
-        >
-          <option value="">All sources</option>
-          {sources.map((source) => (
-            <option key={source} value={source}>
-              {source}
-            </option>
-          ))}
-        </select>
+          options={[
+            { value: '', label: 'All sources' },
+            ...sources.map((source) => ({ value: source, label: source })),
+          ]}
+          onChange={(source) => onChange({ sources: source ? [source] : [] })}
+          ariaLabel="Source platform"
+        />
       </FilterGroup>
 
       <div className="mt-5 grid grid-cols-2 gap-3">
         <label className="field-label">
           Date
-          <select
-            className="control mt-2 h-10 w-full rounded-md px-2 text-sm normal-case"
+          <PrettySelect
+            className="mt-2"
             value={filters.datePosted}
-            onChange={(event) => onChange({ datePosted: event.target.value as JobFilters['datePosted'] })}
-          >
-            <option value="any">Any time</option>
-            <option value="today">Today</option>
-            <option value="3days">3 days</option>
-            <option value="week">Last week</option>
-            <option value="month">Last month</option>
-          </select>
+            options={datePostedOptions}
+            onChange={(datePosted) => onChange({ datePosted })}
+            ariaLabel="Date posted"
+          />
         </label>
         <label className="field-label">
           Sort
-          <select
-            className="control mt-2 h-10 w-full rounded-md px-2 text-sm normal-case"
+          <PrettySelect
+            className="mt-2"
             value={filters.sort}
-            onChange={(event) => onChange({ sort: event.target.value as JobFilters['sort'] })}
-          >
-            <option value="score">Score</option>
-            <option value="date">Date</option>
-            <option value="salary">Salary</option>
-            <option value="company">Company</option>
-          </select>
+            options={sortOptions}
+            onChange={(sort) => onChange({ sort })}
+            ariaLabel="Sort jobs"
+          />
         </label>
       </div>
     </aside>

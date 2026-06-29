@@ -3,6 +3,7 @@ import { DndContext, DragEndEvent, useDraggable, useDroppable } from '@dnd-kit/c
 import { CSS } from '@dnd-kit/utilities'
 import { BriefcaseBusiness, CalendarClock, ExternalLink, GripVertical, MapPin, X } from 'lucide-react'
 import type { Application, ApplicationStatus, ScoredJob } from '../types'
+import { PrettySelect } from './PrettySelect'
 import { ScoreBadge } from './ScoreBadge'
 
 interface KanbanBoardProps {
@@ -220,17 +221,13 @@ function ApplicationModal({
             </div>
             <label className="block text-xs font-medium uppercase text-muted">
               Status
-              <select
-                className="control mt-2 h-11 w-full rounded-md px-3 text-sm normal-case"
+              <PrettySelect<ApplicationStatus>
+                className="mt-2 normal-case"
                 value={application.status}
-                onChange={(event) => onStatusChange(event.target.value as ApplicationStatus)}
-              >
-                {statusOptions.map((option) => (
-                  <option key={option.status} value={option.status}>
-                    {option.title}
-                  </option>
-                ))}
-              </select>
+                options={statusOptions.map((option) => ({ value: option.status, label: option.title }))}
+                onChange={onStatusChange}
+                ariaLabel="Application status"
+              />
             </label>
             <a
               className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-white"
