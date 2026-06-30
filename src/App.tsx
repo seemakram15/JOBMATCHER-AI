@@ -1,19 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import {
+  Activity,
   ArrowRight,
+  BadgeCheck,
   Bell,
   BriefcaseBusiness,
   CalendarDays,
+  Check,
   CheckCircle2,
+  ChevronRight,
   ClipboardList,
+  Cpu,
   DatabaseZap,
+  Eye,
+  EyeOff,
   FileText,
-  FileUp,
   Gauge,
   Globe2,
   KeyRound,
+  Layers,
   LayoutDashboard,
+  Lock,
   LockKeyhole,
   LogIn,
   LogOut,
@@ -21,24 +29,30 @@ import {
   MapPin,
   Menu,
   Moon,
+  MousePointerClick,
+  Network,
   Pencil,
   Plus,
+  Quote,
   Radio,
   RefreshCw,
   Rocket,
   Save,
+  ScanSearch,
   Search,
   Settings,
   ShieldCheck,
   Sparkles,
+  Star,
   Sun,
   Target,
   Trash2,
+  TrendingUp,
   UploadCloud,
   X,
   UserPlus,
   UserRound,
-  WandSparkles,
+  Zap,
 } from 'lucide-react'
 import {
   Bar,
@@ -51,13 +65,21 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import { formatDistanceToNowStrict } from 'date-fns'
 import { FilterPanel } from './components/FilterPanel'
 import { JobCard } from './components/JobCard'
 import { JobDetailPanel } from './components/JobDetailPanel'
 import { KanbanBoard } from './components/KanbanBoard'
 import { PrettySelect } from './components/PrettySelect'
+import { AuroraBackground } from './components/landing/AuroraBackground'
+import { Marquee } from './components/landing/Marquee'
+import { Reveal } from './components/landing/Reveal'
+import { SpotlightCard } from './components/landing/SpotlightCard'
+import { CountUp } from './components/landing/CountUp'
+import { MatchScoreRing } from './components/landing/MatchScoreRing'
+import { MagneticButton } from './components/landing/MagneticButton'
+import { LandingFooter } from './components/landing/LandingFooter'
 import {
   getProfileCompletion,
   isProfileComplete,
@@ -109,6 +131,7 @@ function App() {
   const authStatus = useJobmatchStore((state) => state.authStatus)
   const workspaceStatus = useJobmatchStore((state) => state.workspaceStatus)
   const profile = useJobmatchStore((state) => state.profile)
+  const recoveryMode = useJobmatchStore((state) => state.recoveryMode)
   const initializeAuth = useJobmatchStore((state) => state.initializeAuth)
   const hasWorkspaceSnapshot = useJobmatchStore((state) =>
     Boolean(
@@ -131,6 +154,11 @@ function App() {
 
   if (location.pathname === '/') {
     return <LandingPage />
+  }
+
+  // A password-recovery link takes over the screen until a new password is set.
+  if (recoveryMode) {
+    return <AuthPage />
   }
 
   if (authStatus === 'loading' && !hasWorkspaceSnapshot) {
@@ -254,128 +282,706 @@ function BrandLogo({ compact = false, onDark = false }: { compact?: boolean; onD
   )
 }
 
-function LandingPage() {
-  const featureCards = [
-    {
-      icon: <FileUp size={20} />,
-      title: 'Upload CV once',
-      text: 'PDF, DOCX, DOC, and TXT parsing runs locally and builds your skill profile.',
-    },
-    {
-      icon: <Radio size={20} />,
-      title: 'Extract live jobs',
-      text: 'Searches real remote job APIs and Google Jobs through your configured sources.',
-    },
-    {
-      icon: <Rocket size={20} />,
-      title: 'Rank by fit',
-      text: 'Scores jobs against your skills, experience, role target, location, and freshness.',
-    },
-  ]
+const ROTATING_WORDS = ['fit your CV', 'match your skills', 'match your ambition', 'are worth your time']
+
+const LANDING_NAV = [
+  { label: 'Features', href: '#features' },
+  { label: 'How it works', href: '#how' },
+  { label: 'Sources', href: '#sources' },
+  { label: 'Security', href: '#security' },
+]
+
+const LANDING_SERVICES = [
+  {
+    icon: LayoutDashboard,
+    title: 'Command dashboard',
+    text: 'Live KPIs, search momentum, an application funnel, and a skills-gap read — your whole job hunt at a glance.',
+    accent: 'var(--color-primary)',
+  },
+  {
+    icon: Target,
+    title: 'Role & skill targeting',
+    text: 'Define target roles, locations, salary, and must-haves. These rules decide exactly what enters your feed.',
+    accent: 'var(--color-cyan)',
+  },
+  {
+    icon: ScanSearch,
+    title: 'AI-ranked discovery',
+    text: 'Pull real listings from live sources, then sort score-first cards with advanced filters and a detail panel.',
+    accent: 'var(--color-success)',
+  },
+  {
+    icon: FileText,
+    title: 'Local CV hub',
+    text: 'Parse PDF, DOCX, DOC, and TXT on-device. Edit extracted experience, manage skills, and switch active CVs.',
+    accent: 'var(--color-primary)',
+  },
+  {
+    icon: ClipboardList,
+    title: 'Kanban tracker',
+    text: 'Drag applications across saved, applied, interview, and offer columns — then export the pipeline to CSV.',
+    accent: 'var(--color-cyan)',
+  },
+  {
+    icon: Bell,
+    title: 'Smart alerts',
+    text: 'Saved-search notifications and reminders keep fresh, high-fit roles in front of you without manual checks.',
+    accent: 'var(--color-warning)',
+  },
+  {
+    icon: Network,
+    title: 'Source health',
+    text: 'Admin view of every connected job source so you always know which feeds are returning fresh results.',
+    accent: 'var(--color-success)',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Security & control',
+    text: 'Supabase Auth with row-level security, sanitized job HTML, and GDPR-ready export and deletion flows.',
+    accent: 'var(--color-primary)',
+  },
+]
+
+const LANDING_STEPS = [
+  {
+    icon: UploadCloud,
+    step: '01',
+    title: 'Upload your CV',
+    text: 'Drop a PDF, DOCX, DOC, or TXT. Parsing runs locally to build a structured skill and experience profile.',
+  },
+  {
+    icon: Target,
+    step: '02',
+    title: 'Set your target',
+    text: 'Tune role, location, salary, and must-have skills. Add good and bad examples to sharpen relevance.',
+  },
+  {
+    icon: Cpu,
+    step: '03',
+    title: 'Get ranked matches',
+    text: 'Live roles are scored against your skills, experience, location, and freshness — best fit floats to the top.',
+  },
+  {
+    icon: ClipboardList,
+    step: '04',
+    title: 'Apply & track',
+    text: 'Save, apply, and move each role across your kanban board, then export the whole pipeline whenever you like.',
+  },
+]
+
+const JOB_SOURCES = [
+  'Google Jobs',
+  'LinkedIn',
+  'Indeed',
+  'Adzuna',
+  'Jooble',
+  'RemoteOK',
+  'We Work Remotely',
+  'Glassdoor',
+  'Apify',
+  'RapidAPI',
+]
+
+const LANDING_STATS = [
+  { value: 6, suffix: '', label: 'Live job sources wired in' },
+  { value: 8, suffix: '', label: 'Connected workspace modules' },
+  { value: 4, suffix: '', label: 'CV formats parsed locally' },
+  { value: 100, suffix: '%', label: 'Scoped to your own account' },
+]
+
+const TESTIMONIALS = [
+  { quote: 'Uploaded my CV and instantly saw roles ranked by real fit. No more endless scrolling.', name: 'Ayesha K.', role: 'Frontend Engineer' },
+  { quote: 'The kanban tracker finally replaced my messy spreadsheet. Drag, drop, export — done.', name: 'Daniel R.', role: 'Product Designer' },
+  { quote: 'Match scores are honest. I stopped wasting time on roles that were never going to fit.', name: 'Sofia M.', role: 'Data Analyst' },
+  { quote: 'Local CV parsing means my data never leaves my account. That sold me immediately.', name: 'Marcus T.', role: 'Backend Engineer' },
+  { quote: 'Live sources in one feed saved me from juggling five job boards every morning.', name: 'Priya N.', role: 'DevOps Engineer' },
+  { quote: 'Alerts surface fresh, high-fit roles before they get buried. Genuinely useful.', name: 'Liam O.', role: 'Mobile Developer' },
+]
+
+const SECURITY_PILLARS = [
+  { icon: Lock, title: 'JWT + Row-Level Security', text: 'Every record maps to Supabase RLS policies, so your data is scoped to your account by default.' },
+  { icon: ShieldCheck, title: 'Sanitized job content', text: 'Listing HTML is cleaned with DOMPurify before it ever renders in your workspace.' },
+  { icon: FileText, title: 'Local-first CV parsing', text: 'CV files are parsed on-device — your resume content stays under your control.' },
+  { icon: BadgeCheck, title: 'GDPR-ready flows', text: 'Account export and deletion paths are represented across the schema and docs.' },
+]
+
+const PREVIEW_JOBS = [
+  { title: 'React Platform Engineer', company: 'Northwind', location: 'Remote', score: 96 },
+  { title: 'Product Frontend Engineer', company: 'Lumen Labs', location: 'Hybrid · Berlin', score: 91 },
+  { title: 'AI Workflow Developer', company: 'Cortex', location: 'Remote', score: 88 },
+]
+
+function RotatingWord() {
+  const [index, setIndex] = useState(0)
+
+  useEffect(() => {
+    const id = setInterval(() => setIndex((current) => (current + 1) % ROTATING_WORDS.length), 2600)
+    return () => clearInterval(id)
+  }, [])
 
   return (
-    <main className="min-h-screen bg-bg text-ink">
-      <section className="relative min-h-[92vh] overflow-hidden">
-        <img
-          className="absolute inset-0 h-full w-full object-cover opacity-45"
-          src="https://images.unsplash.com/photo-1551836022-deb4988cc6c0?auto=format&fit=crop&w=1800&q=85"
-          alt=""
-        />
-        <div className="absolute inset-0 bg-gradient-to-br from-[#070913] via-[#101422]/88 to-[#101422]/35" />
+    <span className="relative inline-block align-bottom">
+      <AnimatePresence mode="wait">
+        <motion.span
+          key={index}
+          className="gradient-text animate-gradient-x inline-block"
+          initial={{ y: '0.5em', opacity: 0, filter: 'blur(8px)' }}
+          animate={{ y: 0, opacity: 1, filter: 'blur(0px)' }}
+          exit={{ y: '-0.5em', opacity: 0, filter: 'blur(8px)' }}
+          transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+        >
+          {ROTATING_WORDS[index]}
+        </motion.span>
+      </AnimatePresence>
+    </span>
+  )
+}
 
-        <header className="relative z-10 mx-auto flex max-w-7xl items-center justify-between px-5 py-5 md:px-8">
-          <BrandLogo onDark />
+function LandingPage() {
+  useEffect(() => {
+    const root = document.documentElement
+    const previous = root.style.scrollBehavior
+    root.style.scrollBehavior = 'smooth'
+    return () => {
+      root.style.scrollBehavior = previous
+    }
+  }, [])
+
+  return (
+    <main className="relative min-h-screen overflow-x-hidden bg-bg text-ink">
+      {/* ===== Sticky nav ===== */}
+      <header className="sticky top-0 z-50 border-b border-line/60 bg-bg/70 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-3.5 md:px-8">
+          <BrandLogo />
+          <nav className="hidden items-center gap-1 lg:flex">
+            {LANDING_NAV.map((item) => (
+              <a
+                key={item.href}
+                href={item.href}
+                className="rounded-lg px-3.5 py-2 text-sm font-medium text-muted transition hover:bg-panel hover:text-ink"
+              >
+                {item.label}
+              </a>
+            ))}
+          </nav>
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <NavLink
-              className="inline-flex h-10 items-center gap-2 rounded-md border border-white/20 bg-white/10 px-4 text-sm font-semibold text-white backdrop-blur transition hover:border-primary"
+              className="hidden h-10 items-center gap-2 rounded-lg border border-line bg-panel/70 px-4 text-sm font-semibold text-ink transition hover:border-primary hover:text-primary sm:inline-flex"
               to="/auth?mode=signin"
             >
               <LogIn size={16} /> Sign in
             </NavLink>
-            <NavLink
-              className="inline-flex h-10 items-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-white transition hover:bg-primary/90"
-              to="/auth?mode=signup"
-            >
-              <UserPlus size={16} /> Sign up
-            </NavLink>
-          </div>
-        </header>
-
-        <div className="relative z-10 mx-auto grid max-w-7xl items-center gap-10 px-5 pb-20 pt-16 md:px-8 lg:grid-cols-[1fr_520px] lg:pt-24">
-          <div>
-            <div className="mb-5 inline-flex items-center gap-2 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
-              <WandSparkles size={16} />
-              Local CV parsing + live job extraction
-            </div>
-            <h1 className="max-w-4xl text-5xl font-extrabold leading-tight text-white md:text-7xl">
-              Find the jobs that fit your CV.
-            </h1>
-            <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
-              {brandTagline} Upload your CV, add skills manually, fetch real listings, and track every application without a messy spreadsheet.
-            </p>
-            <div className="mt-8 flex flex-wrap gap-3">
+            <MagneticButton>
               <NavLink
-                className="inline-flex h-12 items-center gap-2 rounded-md bg-primary px-5 text-sm font-bold text-white shadow-soft transition hover:bg-primary/90"
+                className="group inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-white shadow-glow transition hover:bg-primary/90"
                 to="/auth?mode=signup"
               >
-                Upload CV <ArrowRight size={17} />
+                Get started <ArrowRight size={16} className="transition-transform group-hover:translate-x-0.5" />
               </NavLink>
-              <NavLink
-              className="inline-flex h-12 items-center gap-2 rounded-md border border-white/20 bg-white/10 px-5 text-sm font-bold text-white backdrop-blur transition hover:border-primary"
-              to="/auth?mode=signin"
+            </MagneticButton>
+          </div>
+        </div>
+      </header>
+
+      {/* ===== Hero ===== */}
+      <section className="relative overflow-hidden">
+        <AuroraBackground />
+        <div className="relative z-10 mx-auto grid max-w-7xl items-center gap-12 px-5 pb-20 pt-16 md:px-8 lg:grid-cols-[1.05fr_0.95fr] lg:pt-24">
+          <div>
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+              className="inline-flex items-center gap-2 rounded-full border border-success/30 bg-success/10 px-3.5 py-1.5 text-sm font-medium text-success"
             >
-                Explore jobs <Search size={17} />
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-pulse-ring rounded-full bg-success" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
+              </span>
+              Local CV parsing + live job extraction
+            </motion.div>
+
+            <motion.h1
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.06, ease: [0.16, 1, 0.3, 1] }}
+              className="mt-5 text-5xl font-extrabold leading-[1.05] tracking-tight md:text-7xl"
+            >
+              Find the jobs that
+              <br />
+              <RotatingWord />.
+            </motion.h1>
+
+            <motion.p
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.16 }}
+              className="mt-6 max-w-xl text-lg leading-8 text-muted"
+            >
+              {brandTagline} Upload your CV once, surface real listings ranked by fit, and track every application — without a messy spreadsheet.
+            </motion.p>
+
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.24 }}
+              className="mt-8 flex flex-wrap gap-3"
+            >
+              <MagneticButton>
+                <NavLink
+                  className="group inline-flex h-12 items-center gap-2 rounded-xl bg-primary px-6 text-sm font-bold text-white shadow-glow transition hover:bg-primary/90"
+                  to="/auth?mode=signup"
+                >
+                  <UploadCloud size={18} /> Upload your CV
+                  <ArrowRight size={17} className="transition-transform group-hover:translate-x-1" />
+                </NavLink>
+              </MagneticButton>
+              <NavLink
+                className="group inline-flex h-12 items-center gap-2 rounded-xl border border-line bg-panel/70 px-6 text-sm font-bold text-ink backdrop-blur transition hover:border-primary hover:text-primary"
+                to="/auth?mode=signin"
+              >
+                <Search size={17} /> Explore jobs
               </NavLink>
-            </div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.6, delay: 0.34 }}
+              className="mt-9 flex flex-wrap items-center gap-x-6 gap-y-3"
+            >
+              <div className="flex -space-x-3">
+                {[
+                  ['AK', 'bg-primary'],
+                  ['DR', 'bg-success'],
+                  ['SM', 'bg-cyan'],
+                  ['MT', 'bg-warning'],
+                ].map(([initials, color]) => (
+                  <span
+                    key={initials}
+                    className={`flex h-9 w-9 items-center justify-center rounded-full border-2 border-bg text-xs font-bold text-white ${color}`}
+                  >
+                    {initials}
+                  </span>
+                ))}
+              </div>
+              <div>
+                <div className="flex items-center gap-1 text-warning">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <Star key={i} size={15} className="fill-current" />
+                  ))}
+                  <span className="ml-1.5 text-sm font-semibold text-ink">4.9/5</span>
+                </div>
+                <p className="text-xs text-muted">Built for focused, self-directed job seekers</p>
+              </div>
+            </motion.div>
           </div>
 
-          <div className="rounded-md border border-white/15 bg-[#101422]/95 p-4 text-white shadow-soft backdrop-blur">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-300">Live matching preview</p>
-                <p className="font-semibold text-white">Senior Frontend Engineer</p>
+          {/* Preview card */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.94, y: 24 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.7, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
+            className="relative mx-auto w-full max-w-md"
+          >
+            {/* floating badges */}
+            <motion.div
+              className="absolute -left-4 top-10 z-20 hidden rounded-xl border border-line bg-panel/90 px-3 py-2 shadow-soft backdrop-blur sm:flex"
+              animate={{ y: [0, -10, 0] }}
+              transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
+            >
+              <div className="flex items-center gap-2 text-xs font-semibold text-ink">
+                <TrendingUp size={15} className="text-success" /> +128 new today
               </div>
-              <div className="rounded-md border border-success/30 bg-success/10 px-3 py-2 font-mono text-xl font-bold text-success">
-                92%
+            </motion.div>
+            <motion.div
+              className="absolute -right-4 bottom-16 z-20 hidden rounded-xl border border-line bg-panel/90 px-3 py-2 shadow-soft backdrop-blur sm:flex"
+              animate={{ y: [0, 12, 0] }}
+              transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut', delay: 0.6 }}
+            >
+              <div className="flex items-center gap-2 text-xs font-semibold text-ink">
+                <CheckCircle2 size={15} className="text-primary" /> CV parsed locally
               </div>
-            </div>
-            <div className="space-y-3">
-              {[
-                ['React Platform Engineer', 'Remote', 'React, TypeScript, APIs'],
-                ['Product Frontend Engineer', 'Hybrid', 'Vite, Tailwind, Charts'],
-                ['AI Workflow Developer', 'Remote', 'Node.js, PostgreSQL, REST'],
-              ].map(([title, location, skills]) => (
-                <div key={title} className="rounded-md border border-white/10 bg-black/35 p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-white">{title}</p>
-                      <p className="mt-1 text-xs text-slate-400">{location}</p>
-                    </div>
-                    <BriefcaseBusiness className="text-primary" size={20} />
-                  </div>
-                  <p className="mt-3 text-xs text-slate-400">{skills}</p>
+            </motion.div>
+
+            <div className="glass rounded-3xl p-5 shadow-soft">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-muted">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-pulse-ring rounded-full bg-success" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
+                  </span>
+                  Live match preview
                 </div>
-              ))}
+                <Sparkles size={16} className="text-primary" />
+              </div>
+
+              <div className="mt-4 flex items-center gap-4">
+                <MatchScoreRing score={96} size={104} stroke={9} />
+                <div>
+                  <p className="text-xs text-muted">Top match in your feed</p>
+                  <p className="text-base font-bold text-ink">Senior Frontend Engineer</p>
+                  <p className="mt-1 inline-flex items-center gap-1 text-xs text-muted">
+                    <MapPin size={12} /> Remote · Full-time
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 space-y-2.5">
+                {PREVIEW_JOBS.map((job, i) => (
+                  <motion.div
+                    key={job.title}
+                    initial={{ opacity: 0, x: 16 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.5, delay: 0.5 + i * 0.12 }}
+                    className="rounded-xl border border-line bg-bg/50 p-3"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-ink">{job.title}</p>
+                        <p className="truncate text-xs text-muted">
+                          {job.company} · {job.location}
+                        </p>
+                      </div>
+                      <span className="shrink-0 font-mono text-sm font-bold text-success">{job.score}%</span>
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line">
+                      <motion.div
+                        className="h-full rounded-full bg-gradient-to-r from-primary via-cyan to-success"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${job.score}%` }}
+                        transition={{ duration: 1, delay: 0.7 + i * 0.12, ease: 'easeOut' }}
+                      />
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-1.5">
+                {['React', 'TypeScript', 'Node.js', 'GraphQL', '+6'].map((skill) => (
+                  <span key={skill} className="rounded-full border border-line bg-panel/60 px-2.5 py-1 text-[11px] font-medium text-muted">
+                    {skill}
+                  </span>
+                ))}
+              </div>
             </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* ===== Sources marquee ===== */}
+      <section id="sources" className="scroll-mt-24 border-y border-line/60 bg-panel/30 py-10">
+        <div className="mx-auto max-w-7xl px-5 md:px-8">
+          <p className="text-center text-xs font-semibold uppercase tracking-widest text-muted">
+            Aggregating live roles from your configured sources
+          </p>
+        </div>
+        <div className="mt-7">
+          <Marquee speed={38} className="py-1">
+            {JOB_SOURCES.map((source) => (
+              <div
+                key={source}
+                className="mx-3 flex items-center gap-2.5 rounded-2xl border border-line bg-panel/60 px-5 py-3 text-sm font-semibold text-ink/80 transition hover:border-primary/40 hover:text-ink"
+              >
+                <Globe2 size={16} className="text-primary" />
+                {source}
+              </div>
+            ))}
+          </Marquee>
+        </div>
+      </section>
+
+      {/* ===== Stats ===== */}
+      <section className="mx-auto max-w-7xl px-5 py-16 md:px-8">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {LANDING_STATS.map((stat, i) => (
+            <Reveal key={stat.label} delay={i * 0.08}>
+              <div className="rounded-2xl border border-line bg-panel/50 p-6 text-center">
+                <p className="text-4xl font-extrabold tracking-tight text-ink md:text-5xl">
+                  <CountUp to={stat.value} suffix={stat.suffix} />
+                </p>
+                <p className="mt-2 text-sm text-muted">{stat.label}</p>
+              </div>
+            </Reveal>
+          ))}
+        </div>
+      </section>
+
+      {/* ===== Services / Features ===== */}
+      <section id="features" className="scroll-mt-24 mx-auto max-w-7xl px-5 py-12 md:px-8">
+        <Reveal className="mx-auto max-w-2xl text-center">
+          <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-widest text-primary">
+            <Layers size={14} /> Everything in one workspace
+          </span>
+          <h2 className="mt-5 text-4xl font-extrabold tracking-tight md:text-5xl">
+            One place to <span className="gradient-text">discover, match, and track</span>
+          </h2>
+          <p className="mt-4 text-lg text-muted">
+            Eight connected modules turn a scattered job hunt into a single, focused pipeline.
+          </p>
+        </Reveal>
+
+        <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+          {LANDING_SERVICES.map((service, i) => {
+            const Icon = service.icon
+            return (
+              <Reveal key={service.title} delay={(i % 4) * 0.07}>
+                <SpotlightCard glow={service.accent} className="h-full p-6">
+                  <div
+                    className="mb-5 flex h-12 w-12 items-center justify-center rounded-xl text-white shadow-soft transition-transform duration-300 group-hover:-translate-y-1"
+                    style={{ background: `rgb(${service.accent})` }}
+                  >
+                    <Icon size={22} />
+                  </div>
+                  <h3 className="text-lg font-bold text-ink">{service.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-muted">{service.text}</p>
+                </SpotlightCard>
+              </Reveal>
+            )
+          })}
+        </div>
+      </section>
+
+      {/* ===== How it works ===== */}
+      <section id="how" className="scroll-mt-24 relative overflow-hidden py-20">
+        <AuroraBackground withGrid={false} className="opacity-60" />
+        <div className="relative z-10 mx-auto max-w-7xl px-5 md:px-8">
+          <Reveal className="mx-auto max-w-2xl text-center">
+            <span className="inline-flex items-center gap-2 rounded-full border border-cyan/30 bg-cyan/10 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-widest text-cyan">
+              <MousePointerClick size={14} /> Four steps
+            </span>
+            <h2 className="mt-5 text-4xl font-extrabold tracking-tight md:text-5xl">From CV to offer, faster</h2>
+            <p className="mt-4 text-lg text-muted">A guided flow that takes you from upload to a tracked application.</p>
+          </Reveal>
+
+          <div className="relative mt-14 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+            <div className="pointer-events-none absolute left-0 right-0 top-7 hidden h-px bg-gradient-to-r from-transparent via-line to-transparent lg:block" />
+            {LANDING_STEPS.map((item, i) => {
+              const Icon = item.icon
+              return (
+                <Reveal key={item.step} delay={i * 0.1}>
+                  <div className="relative h-full rounded-2xl border border-line bg-panel/60 p-6 backdrop-blur">
+                    <div className="flex items-center justify-between">
+                      <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-primary/30 bg-primary/10 text-primary">
+                        <Icon size={24} />
+                      </div>
+                      <span className="font-mono text-2xl font-black text-line">{item.step}</span>
+                    </div>
+                    <h3 className="mt-5 text-lg font-bold text-ink">{item.title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-muted">{item.text}</p>
+                  </div>
+                </Reveal>
+              )
+            })}
           </div>
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-7xl gap-4 px-5 py-10 md:grid-cols-3 md:px-8">
-        {featureCards.map((feature) => (
-          <article key={feature.title} className="rounded-md border border-line bg-panel/80 p-5">
-            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-md bg-primary/15 text-primary">
-              {feature.icon}
+      {/* ===== Match scoring showcase ===== */}
+      <section className="mx-auto max-w-7xl px-5 py-12 md:px-8">
+        <div className="grid items-center gap-12 lg:grid-cols-2">
+          <Reveal direction="right">
+            <span className="inline-flex items-center gap-2 rounded-full border border-success/30 bg-success/10 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-widest text-success">
+              <Gauge size={14} /> Deterministic scoring
+            </span>
+            <h2 className="mt-5 text-4xl font-extrabold tracking-tight md:text-5xl">
+              Match scores you can <span className="gradient-text">actually trust</span>
+            </h2>
+            <p className="mt-4 text-lg leading-8 text-muted">
+              Every role is scored against your ranked skills, years of experience, target role, location, and how fresh
+              the listing is. No black box — just a transparent fit signal that puts the right roles first.
+            </p>
+            <ul className="mt-7 space-y-3">
+              {[
+                'Skills overlap weighted by your confidence ranking',
+                'Experience and seniority alignment',
+                'Location, remote preference, and salary fit',
+                'Freshness boost for newly posted roles',
+              ].map((point) => (
+                <li key={point} className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-success/15 text-success">
+                    <Check size={13} />
+                  </span>
+                  <span className="text-sm text-ink/90">{point}</span>
+                </li>
+              ))}
+            </ul>
+          </Reveal>
+
+          <Reveal direction="left">
+            <div className="glass rounded-3xl p-7 shadow-soft">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-ink">Score breakdown</p>
+                <span className="rounded-md border border-success/30 bg-success/10 px-2.5 py-1 font-mono text-sm font-bold text-success">
+                  94% fit
+                </span>
+              </div>
+              <div className="mt-6 space-y-5">
+                {[
+                  { label: 'Skills match', value: 96, icon: Zap },
+                  { label: 'Experience', value: 88, icon: Activity },
+                  { label: 'Location & remote', value: 92, icon: MapPin },
+                  { label: 'Freshness', value: 80, icon: TrendingUp },
+                ].map((row, i) => {
+                  const RowIcon = row.icon
+                  return (
+                    <div key={row.label}>
+                      <div className="mb-1.5 flex items-center justify-between text-sm">
+                        <span className="inline-flex items-center gap-2 font-medium text-ink">
+                          <RowIcon size={15} className="text-primary" /> {row.label}
+                        </span>
+                        <span className="font-mono font-semibold text-muted">{row.value}%</span>
+                      </div>
+                      <div className="h-2.5 overflow-hidden rounded-full bg-line">
+                        <motion.div
+                          className="h-full rounded-full bg-gradient-to-r from-primary via-cyan to-success"
+                          initial={{ width: 0 }}
+                          whileInView={{ width: `${row.value}%` }}
+                          viewport={{ once: true, amount: 0.6 }}
+                          transition={{ duration: 1, delay: i * 0.12, ease: 'easeOut' }}
+                        />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
-            <h2 className="text-lg font-semibold">{feature.title}</h2>
-            <p className="mt-2 text-sm leading-6 text-muted">{feature.text}</p>
-          </article>
-        ))}
+          </Reveal>
+        </div>
       </section>
+
+      {/* ===== Testimonials marquee ===== */}
+      <section className="overflow-hidden py-16">
+        <Reveal className="mx-auto mb-10 max-w-2xl px-5 text-center md:px-8">
+          <h2 className="text-4xl font-extrabold tracking-tight md:text-5xl">Loved by focused job seekers</h2>
+          <p className="mt-4 text-lg text-muted">Real workflows, fewer tabs, calmer applications.</p>
+        </Reveal>
+        <Marquee speed={50} reverse>
+          {TESTIMONIALS.map((item) => (
+            <figure
+              key={item.name}
+              className="mx-3 flex w-[340px] shrink-0 flex-col justify-between rounded-2xl border border-line bg-panel/60 p-6"
+            >
+              <Quote size={22} className="text-primary/50" />
+              <blockquote className="mt-3 text-sm leading-6 text-ink/90">“{item.quote}”</blockquote>
+              <figcaption className="mt-5 flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary">
+                  {item.name.split(' ').map((part) => part[0]).join('')}
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-ink">{item.name}</p>
+                  <p className="text-xs text-muted">{item.role}</p>
+                </div>
+              </figcaption>
+            </figure>
+          ))}
+        </Marquee>
+      </section>
+
+      {/* ===== Security ===== */}
+      <section id="security" className="scroll-mt-24 mx-auto max-w-7xl px-5 py-12 md:px-8">
+        <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+          <Reveal direction="right">
+            <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3.5 py-1.5 text-xs font-semibold uppercase tracking-widest text-primary">
+              <ShieldCheck size={14} /> Security by default
+            </span>
+            <h2 className="mt-5 text-4xl font-extrabold tracking-tight md:text-5xl">Your data, your account, your rules</h2>
+            <p className="mt-4 text-lg leading-8 text-muted">
+              Authentication, row-level security, content sanitization, and local CV parsing are wired in from the start —
+              not bolted on later.
+            </p>
+            <MagneticButton className="mt-8 inline-block">
+              <NavLink
+                className="group inline-flex h-12 items-center gap-2 rounded-xl bg-primary px-6 text-sm font-bold text-white shadow-glow transition hover:bg-primary/90"
+                to="/auth?mode=signup"
+              >
+                Create your workspace <ArrowRight size={17} className="transition-transform group-hover:translate-x-1" />
+              </NavLink>
+            </MagneticButton>
+          </Reveal>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            {SECURITY_PILLARS.map((pillar, i) => {
+              const Icon = pillar.icon
+              return (
+                <Reveal key={pillar.title} delay={(i % 2) * 0.08}>
+                  <div className="h-full rounded-2xl border border-line bg-panel/60 p-6">
+                    <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-success/15 text-success">
+                      <Icon size={20} />
+                    </div>
+                    <h3 className="text-base font-bold text-ink">{pillar.title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-muted">{pillar.text}</p>
+                  </div>
+                </Reveal>
+              )
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* ===== Final CTA ===== */}
+      <section className="mx-auto max-w-7xl px-5 py-12 md:px-8">
+        <Reveal>
+          <div className="relative overflow-hidden rounded-3xl border border-line bg-panel/50 px-6 py-16 text-center md:px-12">
+            <AuroraBackground withGrid={false} />
+            <div className="relative z-10 mx-auto max-w-2xl">
+              <h2 className="text-4xl font-extrabold tracking-tight md:text-6xl">
+                Stop scrolling. <span className="gradient-text">Start matching.</span>
+              </h2>
+              <p className="mt-5 text-lg text-muted">
+                Upload your CV, fetch live roles ranked by fit, and run your whole application pipeline from one workspace.
+              </p>
+              <div className="mt-9 flex flex-wrap justify-center gap-3">
+                <MagneticButton>
+                  <NavLink
+                    className="group inline-flex h-12 items-center gap-2 rounded-xl bg-primary px-7 text-sm font-bold text-white shadow-glow transition hover:bg-primary/90"
+                    to="/auth?mode=signup"
+                  >
+                    <UserPlus size={18} /> Get started free
+                    <ArrowRight size={17} className="transition-transform group-hover:translate-x-1" />
+                  </NavLink>
+                </MagneticButton>
+                <NavLink
+                  className="inline-flex h-12 items-center gap-2 rounded-xl border border-line bg-bg/60 px-7 text-sm font-bold text-ink backdrop-blur transition hover:border-primary hover:text-primary"
+                  to="/auth?mode=signin"
+                >
+                  <LogIn size={17} /> Sign in
+                </NavLink>
+              </div>
+            </div>
+          </div>
+        </Reveal>
+      </section>
+
+      <LandingFooter />
     </main>
   )
 }
+
+const AUTH_HIGHLIGHTS = [
+  {
+    icon: ScanSearch,
+    title: 'AI-ranked discovery',
+    text: 'Live roles sorted by real fit against your CV, skills, and targets.',
+  },
+  {
+    icon: FileText,
+    title: 'Local CV parsing',
+    text: 'PDF, DOCX, DOC, and TXT parsed on-device — your data stays yours.',
+  },
+  {
+    icon: ClipboardList,
+    title: 'One pipeline',
+    text: 'Move every application from saved to offer, then export to CSV.',
+  },
+]
+
+const AUTH_STATS = [
+  { value: '6', label: 'Live sources' },
+  { value: '8', label: 'Modules' },
+  { value: '100%', label: 'Yours' },
+]
 
 function AuthPage() {
   const navigate = useNavigate()
@@ -385,19 +991,55 @@ function AuthPage() {
   const workspaceStatus = useJobmatchStore((state) => state.workspaceStatus)
   const profile = useJobmatchStore((state) => state.profile)
   const authMessage = useJobmatchStore((state) => state.authMessage)
+  const recoveryMode = useJobmatchStore((state) => state.recoveryMode)
   const signIn = useJobmatchStore((state) => state.signIn)
   const signUp = useJobmatchStore((state) => state.signUp)
-  const [mode, setMode] = useState<'signin' | 'signup'>(queryMode === 'signup' ? 'signup' : 'signin')
+  const signOut = useJobmatchStore((state) => state.signOut)
+  const requestPasswordReset = useJobmatchStore((state) => state.requestPasswordReset)
+  const updatePassword = useJobmatchStore((state) => state.updatePassword)
+  const clearRecoveryMode = useJobmatchStore((state) => state.clearRecoveryMode)
+  const [mode, setMode] = useState<'signin' | 'signup' | 'reset'>(
+    queryMode === 'signup' ? 'signup' : queryMode === 'reset' ? 'reset' : 'signin',
+  )
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [formMessage, setFormMessage] = useState('')
+  const [notice, setNotice] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
+  const [pending, setPending] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
+  const [highlight, setHighlight] = useState(0)
+
+  const screen: 'signin' | 'signup' | 'reset' | 'recovery' = recoveryMode ? 'recovery' : mode
 
   useEffect(() => {
-    if (authStatus === 'authenticated' && workspaceStatus === 'ready') {
+    if (!recoveryMode && authStatus === 'authenticated' && workspaceStatus === 'ready') {
       navigate(isProfileComplete(profile) ? '/dashboard' : '/profile')
     }
-  }, [authStatus, workspaceStatus, profile, navigate])
+  }, [recoveryMode, authStatus, workspaceStatus, profile, navigate])
+
+  useEffect(() => {
+    const id = setInterval(() => setHighlight((current) => (current + 1) % AUTH_HIGHLIGHTS.length), 3400)
+    return () => clearInterval(id)
+  }, [])
+
+  const passwordStrength = useMemo(() => {
+    let score = 0
+    if (password.length >= 6) score += 1
+    if (password.length >= 10) score += 1
+    if (/[0-9]/.test(password)) score += 1
+    if (/[^A-Za-z0-9]/.test(password)) score += 1
+    return score
+  }, [password])
+
+  const strengthMeta = ['Too short', 'Weak', 'Fair', 'Good', 'Strong']
+
+  const switchMode = (next: 'signin' | 'signup' | 'reset') => {
+    setMode(next)
+    setFormMessage('')
+    setNotice(null)
+  }
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -415,116 +1057,533 @@ function AuthPage() {
     }
   }
 
+  const submitReset = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setNotice(null)
+    setPending(true)
+    try {
+      await requestPasswordReset(email)
+      setNotice({
+        tone: 'success',
+        text: `If an account exists for ${email.trim()}, a password reset link is on its way. Check your inbox and spam folder.`,
+      })
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Could not send the reset email.' })
+    } finally {
+      setPending(false)
+    }
+  }
+
+  const submitRecovery = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setNotice(null)
+    if (password.length < 6) {
+      setNotice({ tone: 'error', text: 'Password must be at least 6 characters.' })
+      return
+    }
+    if (password !== confirmPassword) {
+      setNotice({ tone: 'error', text: 'Passwords do not match.' })
+      return
+    }
+    setPending(true)
+    try {
+      await updatePassword(password)
+      if (typeof window !== 'undefined') window.history.replaceState(null, '', '/auth')
+      await signOut()
+      clearRecoveryMode()
+      setPassword('')
+      setConfirmPassword('')
+      setMode('signin')
+      setNotice({ tone: 'success', text: 'Password updated. Sign in with your new password.' })
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Could not update your password.' })
+    } finally {
+      setPending(false)
+    }
+  }
+
+  const cancelRecovery = async () => {
+    if (typeof window !== 'undefined') window.history.replaceState(null, '', '/auth')
+    await signOut()
+    clearRecoveryMode()
+    setPassword('')
+    setConfirmPassword('')
+    setMode('signin')
+    setNotice(null)
+  }
+
+  const loading = authStatus === 'loading'
+
+  const heading =
+    screen === 'recovery'
+      ? 'Set a new password'
+      : screen === 'reset'
+        ? 'Reset your password'
+        : screen === 'signup'
+          ? 'Create your workspace'
+          : 'Welcome back'
+
+  const subheading =
+    screen === 'recovery'
+      ? 'Choose a strong new password for your account.'
+      : screen === 'reset'
+        ? "Enter your email and we'll send you a secure reset link."
+        : screen === 'signup'
+          ? 'Upload a CV, match live roles, and track every application.'
+          : 'Sign in to pick up your matches and applications.'
+
+  const headingIcon =
+    screen === 'recovery' || screen === 'reset' ? (
+      <LockKeyhole size={18} />
+    ) : screen === 'signup' ? (
+      <UserPlus size={18} />
+    ) : (
+      <LogIn size={18} />
+    )
+
   return (
-    <main className="grid min-h-screen bg-bg text-ink lg:grid-cols-[1fr_520px]">
-      <section className="relative hidden overflow-hidden lg:block">
-        <img
-          className="absolute inset-0 h-full w-full object-cover opacity-55"
-          src="https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1600&q=85"
-          alt=""
-        />
-        <div className="absolute inset-0 bg-gradient-to-br from-[#070913] via-[#101422]/86 to-[#101422]/28" />
-        <div className="relative z-10 flex h-full flex-col justify-between p-10">
-          <NavLink className="flex items-center gap-3" to="/">
+    <main className="grid min-h-screen bg-bg text-ink lg:grid-cols-[1.05fr_0.95fr]">
+      {/* ===== Brand / showcase panel ===== */}
+      <section className="relative hidden overflow-hidden bg-[#0b0e17] lg:block">
+        <AuroraBackground />
+        <div className="relative z-10 flex h-full flex-col justify-between p-12">
+          <NavLink className="inline-flex w-fit items-center gap-3" to="/">
             <BrandLogo onDark />
           </NavLink>
-          <div>
-            <div className="mb-4 inline-flex items-center gap-2 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success">
+
+          <div className="max-w-lg">
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-success/30 bg-success/10 px-3.5 py-1.5 text-sm font-medium text-success">
               <ShieldCheck size={16} />
               User-owned data through Supabase Auth
             </div>
-            <h1 className="max-w-xl text-5xl font-extrabold leading-tight text-white">
-              Your CV, jobs, and tracker belong to your account.
+            <h1 className="text-4xl font-extrabold leading-tight text-white xl:text-5xl">
+              Your CV, jobs, and tracker <span className="gradient-text animate-gradient-x">belong to you</span>.
             </h1>
+
+            {/* auto-rotating highlight */}
+            <div className="relative mt-10 h-28">
+              <AnimatePresence mode="wait">
+                {AUTH_HIGHLIGHTS.map((item, i) =>
+                  i === highlight ? (
+                    <motion.div
+                      key={item.title}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -20 }}
+                      transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+                      className="absolute inset-0 flex items-start gap-4 rounded-2xl border border-white/10 bg-white/[0.04] p-5 backdrop-blur"
+                    >
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/20 text-primary">
+                        <item.icon size={22} />
+                      </div>
+                      <div>
+                        <p className="text-base font-bold text-white">{item.title}</p>
+                        <p className="mt-1 text-sm leading-6 text-slate-300">{item.text}</p>
+                      </div>
+                    </motion.div>
+                  ) : null,
+                )}
+              </AnimatePresence>
+            </div>
+
+            <div className="mt-6 flex gap-2">
+              {AUTH_HIGHLIGHTS.map((item, i) => (
+                <button
+                  key={item.title}
+                  aria-label={`Show ${item.title}`}
+                  onClick={() => setHighlight(i)}
+                  className={`h-1.5 rounded-full transition-all duration-300 ${
+                    i === highlight ? 'w-8 bg-primary' : 'w-2.5 bg-white/25 hover:bg-white/40'
+                  }`}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="flex gap-10">
+            {AUTH_STATS.map((stat) => (
+              <div key={stat.label}>
+                <p className="text-3xl font-extrabold text-white">{stat.value}</p>
+                <p className="text-xs uppercase tracking-widest text-slate-400">{stat.label}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      <section className="flex items-center justify-center px-5 py-10">
-        <div className="w-full max-w-md">
-          <div className="mb-8 lg:hidden">
-            <NavLink className="flex items-center gap-3" to="/">
+      {/* ===== Form panel ===== */}
+      <section className="relative flex items-center justify-center overflow-hidden px-5 py-10">
+        <div className="absolute right-5 top-5 z-10">
+          <ThemeToggle />
+        </div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 18 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+          className="w-full max-w-md"
+        >
+          {screen === 'recovery' ? (
+            <div className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-muted">
+              <LockKeyhole size={15} /> Password recovery
+            </div>
+          ) : (
+            <NavLink
+              className="mb-6 inline-flex items-center gap-1.5 text-sm font-medium text-muted transition hover:text-ink"
+              to="/"
+            >
+              <ChevronRight size={15} className="rotate-180" /> Back to home
+            </NavLink>
+          )}
+
+          <div className="mb-7 flex items-center gap-3 lg:hidden">
+            <NavLink to="/">
               <BrandLogo />
             </NavLink>
           </div>
 
-          <div className="panel p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold text-ink">{mode === 'signup' ? 'Create your workspace' : 'Welcome back'}</p>
-                <p className="text-xs text-muted">{brandTagline}</p>
-              </div>
-              <ThemeToggle />
+          <div className="glass rounded-3xl p-7 shadow-soft">
+            <div className="mb-1 flex items-center gap-2">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/15 text-primary">{headingIcon}</span>
+              <h2 className="text-xl font-extrabold tracking-tight text-ink">{heading}</h2>
             </div>
-            <div className="mb-6 flex rounded-md border border-line bg-bg/70 p-1">
-              {(['signin', 'signup'] as const).map((item) => (
-                <button
-                  key={item}
-                  className={`h-10 flex-1 rounded-md text-sm font-semibold transition ${
-                    mode === item ? 'bg-primary text-white' : 'text-muted hover:text-ink'
-                  }`}
-                  onClick={() => setMode(item)}
-                >
-                  {item === 'signin' ? 'Sign in' : 'Sign up'}
-                </button>
-              ))}
-            </div>
+            <p className="mb-6 text-sm text-muted">{subheading}</p>
 
-            <form className="space-y-4" onSubmit={submit}>
-              {mode === 'signup' ? (
-                <label className="field-label">
-                  Name
+            {/* animated segmented toggle (only for sign in / sign up) */}
+            {screen === 'signin' || screen === 'signup' ? (
+              <div className="relative mb-6 grid grid-cols-2 rounded-xl border border-line bg-bg/70 p-1">
+                {(['signin', 'signup'] as const).map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    className="relative z-10 h-10 rounded-lg text-sm font-semibold transition-colors"
+                    onClick={() => switchMode(item)}
+                  >
+                    {mode === item ? (
+                      <motion.span
+                        layoutId="authToggleIndicator"
+                        className="absolute inset-0 -z-10 rounded-lg bg-primary shadow-glow"
+                        transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                      />
+                    ) : null}
+                    <span className={mode === item ? 'text-white' : 'text-muted'}>
+                      {item === 'signin' ? 'Sign in' : 'Sign up'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+
+            {/* ===== Reset request form ===== */}
+            {screen === 'reset' ? (
+              <form className="space-y-4" onSubmit={submitReset}>
+                <label className="field-label block">
+                  Email
                   <span className="field-shell normal-case">
-                    <UserRound size={16} className="text-muted" />
-                    <input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" />
+                    <Mail size={16} className="text-muted" />
+                    <input
+                      type="email"
+                      autoComplete="email"
+                      required
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      placeholder="you@example.com"
+                    />
                   </span>
                 </label>
-              ) : null}
-              <label className="field-label">
-                Email
-                <span className="field-shell normal-case">
-                  <Mail size={16} className="text-muted" />
-                  <input
-                    type="email"
-                    autoComplete="email"
-                    required
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    placeholder="you@example.com"
-                  />
-                </span>
-              </label>
-              <label className="field-label">
-                Password
-                <span className="field-shell normal-case">
-                  <KeyRound size={16} className="text-muted" />
-                  <input
-                    type="password"
-                    autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-                    minLength={6}
-                    required
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    placeholder="Minimum 6 characters"
-                  />
-                </span>
-              </label>
-              <button
-                className="primary-button h-11 w-full"
-                disabled={authStatus === 'loading'}
-              >
-                {mode === 'signup' ? <UserPlus size={16} /> : <LogIn size={16} />}
-                {authStatus === 'loading' ? 'Please wait...' : mode === 'signup' ? 'Create account' : 'Sign in'}
-              </button>
-            </form>
+                <button className="primary-button h-12 w-full rounded-xl text-sm" disabled={pending}>
+                  {pending ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" /> Sending…
+                    </>
+                  ) : (
+                    <>
+                      <Mail size={16} /> Send reset link
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchMode('signin')}
+                  className="flex w-full items-center justify-center gap-1.5 text-sm font-semibold text-muted transition hover:text-ink"
+                >
+                  <ChevronRight size={15} className="rotate-180" /> Back to sign in
+                </button>
+              </form>
+            ) : null}
 
-            {[formMessage, authMessage].filter(Boolean).map((message) => (
-              <p key={message} className={`mt-4 text-sm ${authStatus === 'error' ? 'text-danger' : 'text-muted'}`}>
-                {message}
-              </p>
-            ))}
+            {/* ===== Set-new-password (recovery) form ===== */}
+            {screen === 'recovery' ? (
+              <form className="space-y-4" onSubmit={submitRecovery}>
+                <label className="field-label block">
+                  New password
+                  <span className="field-shell normal-case">
+                    <KeyRound size={16} className="text-muted" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
+                      minLength={6}
+                      required
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder="Minimum 6 characters"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((current) => !current)}
+                      className="shrink-0 text-muted transition hover:text-ink"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </span>
+                </label>
+
+                {password ? (
+                  <div>
+                    <div className="flex gap-1.5 pt-0.5">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <span
+                          key={i}
+                          className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${
+                            i < passwordStrength
+                              ? passwordStrength >= 3
+                                ? 'bg-success'
+                                : passwordStrength === 2
+                                  ? 'bg-warning'
+                                  : 'bg-danger'
+                              : 'bg-line'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <p className="mt-1.5 text-xs text-muted">Password strength: {strengthMeta[passwordStrength]}</p>
+                  </div>
+                ) : null}
+
+                <label className="field-label block">
+                  Confirm new password
+                  <span className="field-shell normal-case">
+                    <KeyRound size={16} className="text-muted" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="new-password"
+                      minLength={6}
+                      required
+                      value={confirmPassword}
+                      onChange={(event) => setConfirmPassword(event.target.value)}
+                      placeholder="Re-enter your new password"
+                    />
+                  </span>
+                </label>
+
+                <button className="primary-button h-12 w-full rounded-xl text-sm" disabled={pending}>
+                  {pending ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" /> Updating…
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck size={16} /> Update password
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void cancelRecovery()}
+                  className="flex w-full items-center justify-center gap-1.5 text-sm font-semibold text-muted transition hover:text-ink"
+                >
+                  Cancel
+                </button>
+              </form>
+            ) : null}
+
+            {/* ===== Sign in / Sign up form ===== */}
+            {screen === 'signin' || screen === 'signup' ? (
+              <form className="space-y-4" onSubmit={submit}>
+                <AnimatePresence initial={false}>
+                  {mode === 'signup' ? (
+                    <motion.label
+                      key="name-field"
+                      className="field-label block"
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      Name
+                      <span className="field-shell normal-case">
+                        <UserRound size={16} className="text-muted" />
+                        <input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Your name" />
+                      </span>
+                    </motion.label>
+                  ) : null}
+                </AnimatePresence>
+
+                <label className="field-label block">
+                  Email
+                  <span className="field-shell normal-case">
+                    <Mail size={16} className="text-muted" />
+                    <input
+                      type="email"
+                      autoComplete="email"
+                      required
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      placeholder="you@example.com"
+                    />
+                  </span>
+                </label>
+
+                <label className="field-label block">
+                  <span className="flex items-center justify-between">
+                    Password
+                    {mode === 'signin' ? (
+                      <button
+                        type="button"
+                        onClick={() => switchMode('reset')}
+                        className="text-xs font-semibold normal-case text-primary transition hover:underline"
+                      >
+                        Forgot password?
+                      </button>
+                    ) : null}
+                  </span>
+                  <span className="field-shell normal-case">
+                    <KeyRound size={16} className="text-muted" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                      minLength={6}
+                      required
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder="Minimum 6 characters"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword((current) => !current)}
+                      className="shrink-0 text-muted transition hover:text-ink"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </span>
+                </label>
+
+                <AnimatePresence initial={false}>
+                  {mode === 'signup' && password ? (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="flex gap-1.5 pt-0.5">
+                        {Array.from({ length: 4 }).map((_, i) => (
+                          <span
+                            key={i}
+                            className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${
+                              i < passwordStrength
+                                ? passwordStrength >= 3
+                                  ? 'bg-success'
+                                  : passwordStrength === 2
+                                    ? 'bg-warning'
+                                    : 'bg-danger'
+                                : 'bg-line'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      <p className="mt-1.5 text-xs text-muted">Password strength: {strengthMeta[passwordStrength]}</p>
+                    </motion.div>
+                  ) : null}
+                </AnimatePresence>
+
+                <button className="primary-button h-12 w-full rounded-xl text-sm" disabled={loading}>
+                  {loading ? (
+                    <>
+                      <RefreshCw size={16} className="animate-spin" /> Please wait…
+                    </>
+                  ) : mode === 'signup' ? (
+                    <>
+                      <UserPlus size={16} /> Create account
+                    </>
+                  ) : (
+                    <>
+                      <LogIn size={16} /> Sign in
+                    </>
+                  )}
+                </button>
+              </form>
+            ) : null}
+
+            {/* ===== Messages ===== */}
+            {screen === 'reset' || screen === 'recovery'
+              ? notice
+                ? [notice].map((item) => (
+                    <motion.p
+                      key={item.text}
+                      initial={{ opacity: 0, y: -4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`mt-4 flex items-start gap-2 rounded-xl border p-3 text-sm ${
+                        item.tone === 'error'
+                          ? 'border-danger/30 bg-danger/10 text-danger'
+                          : 'border-success/30 bg-success/10 text-success'
+                      }`}
+                    >
+                      {item.tone === 'error' ? (
+                        <X size={15} className="mt-0.5 shrink-0" />
+                      ) : (
+                        <CheckCircle2 size={15} className="mt-0.5 shrink-0" />
+                      )}
+                      {item.text}
+                    </motion.p>
+                  ))
+                : null
+              : [formMessage, authMessage].filter(Boolean).map((message) => (
+                  <motion.p
+                    key={message}
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`mt-4 flex items-start gap-2 rounded-xl border p-3 text-sm ${
+                      authStatus === 'error'
+                        ? 'border-danger/30 bg-danger/10 text-danger'
+                        : 'border-success/30 bg-success/10 text-success'
+                    }`}
+                  >
+                    {authStatus === 'error' ? <X size={15} className="mt-0.5 shrink-0" /> : <CheckCircle2 size={15} className="mt-0.5 shrink-0" />}
+                    {message}
+                  </motion.p>
+                ))}
+
+            <div className="mt-6 flex items-center gap-3 text-xs text-muted">
+              <span className="h-px flex-1 bg-line" />
+              <span className="inline-flex items-center gap-1.5">
+                <Lock size={12} /> Secured by Supabase Auth
+              </span>
+              <span className="h-px flex-1 bg-line" />
+            </div>
+
+            <p className="mt-5 text-center text-xs leading-5 text-muted">
+              {screen === 'signup' ? (
+                <>By creating an account you agree to keep this workspace for personal job-search use.</>
+              ) : screen === 'signin' ? (
+                <>
+                  New here?{' '}
+                  <button type="button" onClick={() => switchMode('signup')} className="font-semibold text-primary hover:underline">
+                    Create an account
+                  </button>
+                </>
+              ) : screen === 'reset' ? (
+                <>Remembered it? Use “Back to sign in” above.</>
+              ) : (
+                <>This link is single-use and expires shortly after it is sent.</>
+              )}
+            </p>
           </div>
-        </div>
+        </motion.div>
       </section>
     </main>
   )
@@ -1077,7 +2136,181 @@ function ProfilePage() {
           ) : null}
         </div>
       </section>
+
+      <AccountSecurityCard />
     </div>
+  )
+}
+
+function AccountSecurityCard() {
+  const updatePassword = useJobmatchStore((state) => state.updatePassword)
+  const email = useJobmatchStore((state) => state.profile.email)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPasswords, setShowPasswords] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [notice, setNotice] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
+
+  const strength = useMemo(() => {
+    let score = 0
+    if (newPassword.length >= 6) score += 1
+    if (newPassword.length >= 10) score += 1
+    if (/[0-9]/.test(newPassword)) score += 1
+    if (/[^A-Za-z0-9]/.test(newPassword)) score += 1
+    return score
+  }, [newPassword])
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setNotice(null)
+
+    if (newPassword.length < 6) {
+      setNotice({ tone: 'error', text: 'New password must be at least 6 characters.' })
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setNotice({ tone: 'error', text: 'New passwords do not match.' })
+      return
+    }
+    if (currentPassword && currentPassword === newPassword) {
+      setNotice({ tone: 'error', text: 'New password must be different from your current password.' })
+      return
+    }
+
+    setPending(true)
+    try {
+      await updatePassword(newPassword, currentPassword || undefined)
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      setNotice({ tone: 'success', text: 'Password updated successfully.' })
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Could not update your password.' })
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <section className="panel p-5">
+      <div className="mb-5 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-md bg-primary/15 text-primary">
+            <ShieldCheck size={21} />
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold text-ink">Account security</h2>
+            <p className="text-sm text-muted">
+              Change the password for {email ? <span className="font-medium text-ink">{email}</span> : 'your account'}.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowPasswords((current) => !current)}
+          className="secondary-button h-9 px-3 text-xs"
+        >
+          {showPasswords ? <EyeOff size={15} /> : <Eye size={15} />}
+          {showPasswords ? 'Hide' : 'Show'}
+        </button>
+      </div>
+
+      <form onSubmit={submit} className="space-y-4">
+        <div className="grid gap-4 lg:grid-cols-3">
+          <label className="field-label">
+            Current password
+            <span className="field-shell normal-case">
+              <LockKeyhole size={16} className="text-muted" />
+              <input
+                type={showPasswords ? 'text' : 'password'}
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                placeholder="Current password"
+              />
+            </span>
+          </label>
+          <label className="field-label">
+            New password
+            <span className="field-shell normal-case">
+              <KeyRound size={16} className="text-muted" />
+              <input
+                type={showPasswords ? 'text' : 'password'}
+                autoComplete="new-password"
+                minLength={6}
+                required
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                placeholder="Minimum 6 characters"
+              />
+            </span>
+          </label>
+          <label className="field-label">
+            Confirm new password
+            <span className="field-shell normal-case">
+              <KeyRound size={16} className="text-muted" />
+              <input
+                type={showPasswords ? 'text' : 'password'}
+                autoComplete="new-password"
+                minLength={6}
+                required
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                placeholder="Re-enter new password"
+              />
+            </span>
+          </label>
+        </div>
+
+        {newPassword ? (
+          <div className="max-w-sm">
+            <div className="flex gap-1.5">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <span
+                  key={i}
+                  className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${
+                    i < strength
+                      ? strength >= 3
+                        ? 'bg-success'
+                        : strength === 2
+                          ? 'bg-warning'
+                          : 'bg-danger'
+                      : 'bg-line'
+                  }`}
+                />
+              ))}
+            </div>
+            <p className="mt-1.5 text-xs text-muted">
+              Password strength: {['Too short', 'Weak', 'Fair', 'Good', 'Strong'][strength]}
+            </p>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="submit" className="primary-button h-11" disabled={pending}>
+            {pending ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+            {pending ? 'Updating…' : 'Update password'}
+          </button>
+          <p className="inline-flex items-center gap-1.5 text-xs text-muted">
+            <ShieldCheck size={13} className="text-success" /> Verified against your current password before changing.
+          </p>
+        </div>
+
+        {notice ? (
+          <p
+            className={`flex items-start gap-2 rounded-md border p-3 text-sm ${
+              notice.tone === 'error'
+                ? 'border-danger/30 bg-danger/10 text-danger'
+                : 'border-success/30 bg-success/10 text-success'
+            }`}
+          >
+            {notice.tone === 'error' ? <X size={15} className="mt-0.5 shrink-0" /> : <CheckCircle2 size={15} className="mt-0.5 shrink-0" />}
+            {notice.text}
+          </p>
+        ) : null}
+      </form>
+    </section>
   )
 }
 

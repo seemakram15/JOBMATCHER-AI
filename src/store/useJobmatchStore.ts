@@ -39,6 +39,7 @@ interface JobmatchState {
   authStatus: AuthStatus
   workspaceStatus: WorkspaceStatus
   authMessage: string
+  recoveryMode: boolean
   userId: string | null
   profile: UserProfile
   cvs: CvProfile[]
@@ -56,6 +57,9 @@ interface JobmatchState {
   signUp: (email: string, password: string, name: string) => Promise<void>
   signIn: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
+  requestPasswordReset: (email: string) => Promise<void>
+  updatePassword: (newPassword: string, currentPassword?: string) => Promise<void>
+  clearRecoveryMode: () => void
   setSelectedJob: (jobId: string) => void
   setFilters: (filters: Partial<JobFilters>) => void
   resetFilters: () => void
@@ -101,10 +105,18 @@ const workspaceCacheKey = 'jobmatcher-workspace-cache-v1'
 
 const timestamp = () => new Date().toISOString()
 
+function isRecoveryUrl() {
+  if (typeof window === 'undefined') return false
+  const hash = window.location.hash || ''
+  const search = window.location.search || ''
+  return hash.includes('type=recovery') || new URLSearchParams(search).get('mode') === 'recovery'
+}
+
 const emptyState = {
   authStatus: 'loading' as AuthStatus,
   workspaceStatus: 'idle' as WorkspaceStatus,
   authMessage: '',
+  recoveryMode: false,
   userId: null,
   profile: createEmptyProfile(),
   cvs: [],
@@ -140,6 +152,8 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
       return
     }
 
+    const recovering = isRecoveryUrl()
+
     const { data, error } = await supabase.auth.getSession()
     if (error) {
       set({ authStatus: 'error', authMessage: error.message, workspaceStatus: 'error' })
@@ -147,7 +161,11 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
     }
 
     const user = data.session?.user
-    if (user) {
+    if (recovering && user) {
+      // A password-recovery link established a session. Keep the user on the
+      // "set a new password" screen instead of loading the workspace.
+      set({ authStatus: 'unauthenticated', workspaceStatus: 'idle', authMessage: '', recoveryMode: true })
+    } else if (user) {
       await loadWorkspaceForUser(user.id, user.email || '')
     } else {
       resetWorkspace(set, 'unauthenticated')
@@ -156,9 +174,25 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
     if (!authListenerStarted) {
       authListenerStarted = true
       supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'PASSWORD_RECOVERY') {
+          useJobmatchStore.setState({
+            authStatus: 'unauthenticated',
+            workspaceStatus: 'idle',
+            authMessage: '',
+            recoveryMode: true,
+          })
+          return
+        }
+
         const nextUser = session?.user
         if (!nextUser) {
           resetWorkspace(set, 'unauthenticated')
+          return
+        }
+
+        // While the recovery screen is open, ignore the recovery session so the
+        // user is not redirected into the workspace before setting a new password.
+        if (useJobmatchStore.getState().recoveryMode) {
           return
         }
 
@@ -218,6 +252,32 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
     if (supabase) await supabase.auth.signOut()
     resetWorkspace(set, 'unauthenticated')
   },
+  requestPasswordReset: async (email) => {
+    const client = requireSupabase()
+    const redirectTo =
+      typeof window !== 'undefined' ? `${window.location.origin}/auth?mode=recovery` : undefined
+    const { error } = await client.auth.resetPasswordForEmail(
+      email.trim(),
+      redirectTo ? { redirectTo } : undefined,
+    )
+    if (error) throw error
+  },
+  updatePassword: async (newPassword, currentPassword) => {
+    const client = requireSupabase()
+
+    // Optionally re-authenticate to confirm the user knows their current password
+    // (Supabase's updateUser does not verify it on its own).
+    if (currentPassword) {
+      const email = useJobmatchStore.getState().profile.email
+      if (!email) throw new Error('No account email on file to verify your current password.')
+      const { error: verifyError } = await client.auth.signInWithPassword({ email, password: currentPassword })
+      if (verifyError) throw new Error('Current password is incorrect.')
+    }
+
+    const { error } = await client.auth.updateUser({ password: newPassword })
+    if (error) throw error
+  },
+  clearRecoveryMode: () => set({ recoveryMode: false }),
   setSelectedJob: (jobId) => set({ selectedJobId: jobId }),
   setFilters: (filters) => set((state) => ({ filters: { ...state.filters, ...filters } })),
   resetFilters: () => set({ filters: defaultFilters }),
