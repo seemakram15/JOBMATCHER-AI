@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { defaultFilters, emptyCv, createEmptyProfile } from '../lib/defaults'
+import { getPasswordRecoveryRedirectUrl } from '../lib/appUrl'
 import { hasSupabaseConfig, requireSupabase, supabase } from '../lib/supabase'
 import { scoreJobs } from '../lib/scoring'
 import {
@@ -254,11 +255,9 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
   },
   requestPasswordReset: async (email) => {
     const client = requireSupabase()
-    const redirectTo =
-      typeof window !== 'undefined' ? `${window.location.origin}/auth?mode=recovery` : undefined
     const { error } = await client.auth.resetPasswordForEmail(
       email.trim(),
-      redirectTo ? { redirectTo } : undefined,
+      { redirectTo: getPasswordRecoveryRedirectUrl() },
     )
     if (error) throw error
   },

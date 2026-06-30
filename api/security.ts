@@ -11,6 +11,7 @@ const defaultAllowedOrigins = new Set([
   'http://127.0.0.1:5175',
   'http://localhost:3002',
   'http://127.0.0.1:3002',
+  'https://myjobmatcher.vercel.app',
 ])
 
 export class ApiError extends Error {
