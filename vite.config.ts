@@ -4,7 +4,21 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  for (const key of ['SERPAPI_KEY', 'APIFY_API_TOKEN', 'APIFY_API_KEYS', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'DATABASE_URL']) {
+  for (const key of [
+    'SERPAPI_KEY',
+    'APIFY_API_TOKEN',
+    'APIFY_API_KEYS',
+    'ADZUNA_APP_ID',
+    'ADZUNA_APP_KEY',
+    'ADZUNA_APP_KEYS',
+    'JOOBLE_API_KEY',
+    'JOOBLE_API_KEYS',
+    'RAPIDAPI_KEY',
+    'OPENWEB_NINJA_API_KEY',
+    'SUPABASE_URL',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'DATABASE_URL',
+  ]) {
     if (!process.env[key] && env[key]) {
       process.env[key] = env[key]
     }

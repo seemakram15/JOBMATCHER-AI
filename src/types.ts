@@ -1,5 +1,6 @@
 export type UserRole = 'job_seeker' | 'admin'
 export type WorkMode = 'remote' | 'hybrid' | 'onsite'
+export type RemotePreference = WorkMode | 'any'
 export type JobType = 'full_time' | 'part_time' | 'contract' | 'freelance' | 'internship'
 export type ExperienceLevel = 'entry' | 'mid' | 'senior' | 'lead' | 'executive'
 export type ApplicationStatus =
@@ -19,7 +20,18 @@ export interface UserProfile {
   headline: string
   location: string
   targetRole: string
+  targetRoles: string[]
+  mustHaveSkills: string[]
+  avoidKeywords: string[]
+  preferredCountries: string[]
+  preferredCities: string[]
+  remotePreference: RemotePreference
   preferredRemote: boolean
+  minimumSalary: number
+  experienceYears: number
+  goodJobExamples: string[]
+  badJobExamples: string[]
+  profileCompletedAt: string | null
   salaryMin: number
   salaryMax: number
   currency: string

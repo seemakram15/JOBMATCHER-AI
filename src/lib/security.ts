@@ -123,17 +123,61 @@ export function sanitiseCvProfile(cv: CvProfile): CvProfile {
 }
 
 export function sanitiseUserProfile(profile: UserProfile): UserProfile {
+  const targetRoles = sanitiseTextList(profile.targetRoles, 10, 120)
+  const mustHaveSkills = sanitiseTextList(profile.mustHaveSkills, 30, 80)
+  const preferredCountries = sanitiseTextList(profile.preferredCountries, 8, 80)
+  const preferredCities = sanitiseTextList(profile.preferredCities, 12, 80)
+  const remotePreference = sanitiseRemotePreference(profile.remotePreference)
+  const minimumSalary = Math.round(clampNumber(profile.minimumSalary ?? profile.salaryMin, 0, 1_000_000, 0))
+
   return {
     ...profile,
     email: sanitiseText(profile.email, 254),
     name: sanitiseText(profile.name, 160),
     headline: sanitiseText(profile.headline, 240),
     location: sanitiseText(profile.location, 120),
-    targetRole: sanitiseText(profile.targetRole, 160),
+    targetRole: sanitiseText(profile.targetRole || targetRoles[0] || '', 160),
+    targetRoles,
+    mustHaveSkills,
+    avoidKeywords: sanitiseTextList(profile.avoidKeywords, 30, 80),
+    preferredCountries: preferredCountries.length ? preferredCountries : ['Remote'],
+    preferredCities: preferredCities.length ? preferredCities : ['Remote'],
+    remotePreference,
+    preferredRemote: remotePreference === 'remote' || remotePreference === 'any' ? true : Boolean(profile.preferredRemote),
+    minimumSalary,
+    experienceYears: Math.round(clampNumber(profile.experienceYears, 0, 60, 0)),
+    goodJobExamples: sanitiseTextList(profile.goodJobExamples, 12, 240),
+    badJobExamples: sanitiseTextList(profile.badJobExamples, 12, 240),
+    profileCompletedAt: sanitiseIsoDate(profile.profileCompletedAt),
     salaryMin: Math.round(clampNumber(profile.salaryMin, 0, 1_000_000, 0)),
     salaryMax: Math.round(clampNumber(profile.salaryMax, 0, 1_000_000, 0)),
     currency: /^[A-Z]{3}$/.test(profile.currency) ? profile.currency : 'USD',
   }
+}
+
+function sanitiseTextList(values: unknown, maxItems: number, maxLength: number) {
+  if (!Array.isArray(values)) return []
+  const seen = new Set<string>()
+  return values
+    .map((value) => sanitiseText(value, maxLength))
+    .filter(Boolean)
+    .filter((value) => {
+      const key = value.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .slice(0, maxItems)
+}
+
+function sanitiseRemotePreference(value: unknown): UserProfile['remotePreference'] {
+  return value === 'hybrid' || value === 'onsite' || value === 'any' || value === 'remote' ? value : 'remote'
+}
+
+function sanitiseIsoDate(value: unknown) {
+  if (!value) return null
+  const date = new Date(String(value))
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
 export function sanitiseJob(job: Job): Job {

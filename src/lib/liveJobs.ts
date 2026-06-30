@@ -1,11 +1,18 @@
 import fetch from 'node-fetch'
 import { sanitiseJob } from './security.js'
-import type { ExperienceLevel, Job, JobType, SkillRequirement, WorkMode } from '../types'
+import type { ExperienceLevel, Job, JobType, RemotePreference, SkillRequirement, WorkMode } from '../types'
 
 export interface LiveJobSearchInput {
   query: string
   location?: string
   skills?: string[]
+  targetRoles?: string[]
+  mustHaveSkills?: string[]
+  avoidKeywords?: string[]
+  preferredCountries?: string[]
+  preferredCities?: string[]
+  remotePreference?: RemotePreference
+  minimumSalary?: number
   experienceYears?: number
   limit?: number
 }
@@ -25,6 +32,12 @@ interface SearchProfile {
   rawQuery: string
   roleTerms: string[]
   skillTerms: string[]
+  mustHaveSkillTerms: string[]
+  avoidTerms: string[]
+  preferredCountries: string[]
+  preferredCities: string[]
+  remotePreference: RemotePreference
+  minimumSalary: number
   coreSkillTerms: string[]
   secondarySkillTerms: string[]
   broadSkillTerms: string[]
@@ -66,11 +79,16 @@ const skillHints = [
 
 export async function fetchLiveJobs(input: LiveJobSearchInput, env: Record<string, string | undefined> = process.env) {
   const search = buildSearchProfile(input)
-  const sources = await Promise.allSettled([
-    fetchRemotiveJobs(search.sourceQuery),
-    fetchRemoteOkJobs(search.sourceQuery),
-    fetchSerpApiJobs(search.sourceQuery, input.location || 'Remote', env.SERPAPI_KEY),
-  ])
+  const sourceTasks: Array<{ name: string; task: Promise<Job[]> }> = [
+    { name: 'Remotive', task: fetchRemotiveJobs(search.sourceQuery) },
+    { name: 'RemoteOK', task: fetchRemoteOkJobs(search.sourceQuery) },
+    { name: 'Google Jobs', task: fetchSerpApiJobs(search.sourceQuery, input.location || 'Remote', env.SERPAPI_KEY) },
+    { name: 'Adzuna', task: fetchAdzunaJobs(search, input, env) },
+    { name: 'Jooble', task: fetchJoobleJobs(search, input, env) },
+    { name: 'OpenWeb Ninja', task: fetchOpenWebNinjaJobs(search, input, env) },
+    { name: 'JSearch', task: fetchRapidApiJobs(search, input, env.RAPIDAPI_KEY, 'JSearch') },
+  ]
+  const sources = await Promise.allSettled(sourceTasks.map((source) => source.task))
 
   const result: LiveJobSearchResult = {
     jobs: [],
@@ -78,12 +96,12 @@ export async function fetchLiveJobs(input: LiveJobSearchInput, env: Record<strin
   }
 
   for (const [index, sourceResult] of sources.entries()) {
-    const sourceName = ['Remotive', 'RemoteOK', 'Google Jobs'][index]
+    const sourceName = sourceTasks[index]?.name || 'Live source'
     if (sourceResult.status === 'fulfilled') {
       result.jobs.push(...sourceResult.value)
       result.sources.push({ name: sourceName, count: sourceResult.value.length, ok: true })
     } else {
-      result.sources.push({ name: sourceName, count: 0, ok: false, error: sourceResult.reason?.message || 'failed' })
+      result.sources.push({ name: sourceName, count: 0, ok: false, error: safeSourceError(sourceResult.reason) })
     }
   }
 
@@ -92,6 +110,16 @@ export async function fetchLiveJobs(input: LiveJobSearchInput, env: Record<strin
     .map(sanitiseJob)
 
   return result
+}
+
+function safeSourceError(error: unknown) {
+  const message = error instanceof Error ? error.message : 'failed'
+  return message
+    .replace(/https:\/\/jooble\.org\/api\/[^\s)]+/gi, 'https://jooble.org/api/<redacted>')
+    .replace(/([?&](?:api_key|app_key|token|key)=)[^&\s)]+/gi, '$1<redacted>')
+    .replace(/(X-RapidAPI-Key[:=]\s*)[^\s,)]+/gi, '$1<redacted>')
+    .replace(/(X-API-Key[:=]\s*)[^\s,)]+/gi, '$1<redacted>')
+    .slice(0, 240)
 }
 
 export function filterRelevantJobsForSearch(jobs: Job[], input: LiveJobSearchInput) {
@@ -112,27 +140,50 @@ export function explainLiveJobRelevance(job: Job, input: LiveJobSearchInput) {
 }
 
 function buildSearchProfile(input: LiveJobSearchInput): SearchProfile {
-  const skills = dedupeTerms(input.skills || [])
+  const targetRoles = dedupeTerms(input.targetRoles || [])
+  const mustHaveSkills = dedupeTerms(input.mustHaveSkills || [])
+  const skills = dedupeTerms([...mustHaveSkills, ...(input.skills || [])])
   const rawQuery = cleanSearchTerm(input.query)
-  const roleTerms = extractRoleTerms(input.query, skills)
+  const roleSignal = targetRoles.length ? targetRoles.join(' ') : input.query
+  const roleTerms = extractRoleTerms(roleSignal, skills)
   const coreSkillTerms = sortSkillsForSearch(skills.filter((skill) => isCoreSearchSkill(skill, rawQuery)))
   const broadSkillTerms = skills.filter((skill) => isBroadSearchSkill(skill, rawQuery))
   const secondarySkillTerms = sortSkillsForSearch(
     skills.filter((skill) => !coreSkillTerms.includes(skill) && !broadSkillTerms.includes(skill)),
   )
-  const roleQuery = roleTerms.length ? roleTerms.join(' ') : rawQuery || 'software engineer'
-  const strongestSkills = coreSkillTerms.length ? coreSkillTerms : secondarySkillTerms
+  const roleQuery = buildRoleQuery(targetRoles, roleTerms, rawQuery)
+  const strongestSkills = buildSourceSkillTerms(mustHaveSkills, coreSkillTerms, secondarySkillTerms)
 
   return {
-    sourceQuery: [roleQuery, ...strongestSkills.slice(0, 3)].filter(Boolean).join(' '),
+    sourceQuery: [roleQuery, ...strongestSkills.slice(0, 5)].filter(Boolean).join(' '),
     rawQuery,
     roleTerms,
     skillTerms: skills,
+    mustHaveSkillTerms: mustHaveSkills,
+    avoidTerms: dedupeTerms(input.avoidKeywords || []).filter((term) => !isEmptyPreference(term)),
+    preferredCountries: dedupeTerms(input.preferredCountries || []),
+    preferredCities: dedupeTerms(input.preferredCities || []),
+    remotePreference: normaliseRemotePreference(input.remotePreference),
+    minimumSalary: Math.max(0, Number(input.minimumSalary) || 0),
     coreSkillTerms,
     secondarySkillTerms,
     broadSkillTerms,
     experienceYears: input.experienceYears,
   }
+}
+
+function buildRoleQuery(targetRoles: string[], roleTerms: string[], rawQuery: string) {
+  if (targetRoles.length) return targetRoles[0]
+  if (roleTerms.length) return roleTerms.join(' ')
+  if (hasRoleLanguage(rawQuery)) return rawQuery
+  return ''
+}
+
+function buildSourceSkillTerms(mustHaveSkills: string[], coreSkillTerms: string[], secondarySkillTerms: string[]) {
+  const supportSkills = [...coreSkillTerms, ...secondarySkillTerms].filter(
+    (skill) => !mustHaveSkills.some((mustHave) => skillsEquivalent(skill, mustHave)),
+  )
+  return dedupeTerms([...mustHaveSkills.slice(0, 3), ...supportSkills.slice(0, 4)])
 }
 
 async function fetchRemotiveJobs(query: string): Promise<Job[]> {
@@ -301,6 +352,483 @@ async function fetchSerpApiJobs(query: string, location: string, apiKey?: string
   })
 }
 
+async function fetchAdzunaJobs(
+  search: SearchProfile,
+  input: LiveJobSearchInput,
+  env: Record<string, string | undefined>,
+): Promise<Job[]> {
+  const appId = env.ADZUNA_APP_ID
+  const keys = getEnvList(env, 'ADZUNA_APP_KEYS', ['ADZUNA_APP_KEY'])
+  if (!appId || !keys.length) return []
+
+  const country = adzunaCountryCode(input.location, search.preferredCountries)
+  const where = providerLocation(input.location, search)
+  const errors: string[] = []
+
+  for (const key of keys) {
+    const url = new URL(`https://api.adzuna.com/v1/api/jobs/${country}/search/1`)
+    url.searchParams.set('app_id', appId)
+    url.searchParams.set('app_key', key)
+    url.searchParams.set('results_per_page', '50')
+    url.searchParams.set('sort_by', 'date')
+    url.searchParams.set('what', search.sourceQuery)
+    if (where && !/^remote$/i.test(where)) url.searchParams.set('where', where)
+
+    try {
+      const response = await fetch(url.toString(), { headers: { Accept: 'application/json' } })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const data = (await response.json()) as {
+        results?: Array<{
+          id?: string
+          title?: string
+          description?: string
+          redirect_url?: string
+          created?: string
+          salary_min?: number
+          salary_max?: number
+          contract_time?: string
+          category?: { label?: string }
+          company?: { display_name?: string }
+          location?: { display_name?: string; area?: string[] }
+        }>
+      }
+
+      return (data.results || []).map((item) => {
+        const description = stripHtml(item.description || '')
+        const location = item.location?.display_name || where || 'Remote'
+        const skills = inferSkills(`${item.title || ''} ${description} ${item.category?.label || ''}`)
+        return {
+          id: uuidFromText(`adzuna-${country}-${item.id || hash(`${item.company?.display_name}-${item.title}-${location}`)}`),
+          title: item.title || 'Untitled role',
+          company: item.company?.display_name || 'Unknown company',
+          companyLogo: initials(item.company?.display_name || 'AZ'),
+          location,
+          country: item.location?.area?.[0] || country.toUpperCase(),
+          city: lastArrayItem(item.location?.area) || location,
+          isRemote: /remote/i.test(`${location} ${description}`),
+          workMode: inferWorkMode(`${location} ${description}`),
+          description,
+          descriptionHtml: `<p>${escapeHtml(description).replace(/\n/g, '</p><p>')}</p>`,
+          salaryMin: item.salary_min || undefined,
+          salaryMax: item.salary_max || undefined,
+          salaryCurrency: currencyForCountry(country),
+          jobType: normaliseJobType(item.contract_time),
+          experienceMin: inferExperienceMin(`${item.title} ${description}`),
+          experienceMax: inferExperienceMax(`${item.title} ${description}`),
+          level: inferLevel(`${item.title} ${description}`),
+          skillsRequired: skills,
+          applyUrl: item.redirect_url || 'https://www.adzuna.com',
+          sourcePlatform: 'Adzuna',
+          postedAt: item.created || new Date().toISOString(),
+          fetchedAt: new Date().toISOString(),
+        }
+      })
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : 'failed')
+    }
+  }
+
+  throw new Error(`Adzuna failed after ${keys.length} key${keys.length === 1 ? '' : 's'}: ${errors[errors.length - 1] || 'unknown error'}`)
+}
+
+async function fetchJoobleJobs(
+  search: SearchProfile,
+  input: LiveJobSearchInput,
+  env: Record<string, string | undefined>,
+): Promise<Job[]> {
+  const keys = getEnvList(env, 'JOOBLE_API_KEYS', ['JOOBLE_API_KEY'])
+  if (!keys.length) return []
+
+  const location = providerLocation(input.location, search)
+  const errors: string[] = []
+  for (const key of keys) {
+    try {
+      const response = await fetch(`https://jooble.org/api/${encodeURIComponent(key)}`, {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keywords: search.sourceQuery,
+          location: /^remote$/i.test(location) ? '' : location,
+          page: 1,
+        }),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const data = (await response.json()) as {
+        jobs?: Array<{
+          title?: string
+          company?: string
+          location?: string
+          snippet?: string
+          salary?: string
+          source?: string
+          type?: string
+          link?: string
+          updated?: string
+        }>
+      }
+
+      return (data.jobs || []).map((item) => {
+        const description = stripHtml(item.snippet || '')
+        const salary = parseSalary(item.salary || '')
+        const jobLocation = item.location || location || 'Remote'
+        return {
+          id: uuidFromText(`jooble-${item.link || `${item.company}-${item.title}-${jobLocation}`}`),
+          title: item.title || 'Untitled role',
+          company: item.company || item.source || 'Unknown company',
+          companyLogo: initials(item.company || item.source || 'JB'),
+          location: jobLocation,
+          country: countryFromLocation(jobLocation),
+          city: cityFromLocation(jobLocation),
+          isRemote: /remote/i.test(`${jobLocation} ${description}`),
+          workMode: inferWorkMode(`${jobLocation} ${description}`),
+          description,
+          descriptionHtml: `<p>${escapeHtml(description).replace(/\n/g, '</p><p>')}</p>`,
+          salaryMin: salary.min,
+          salaryMax: salary.max,
+          salaryCurrency: 'USD',
+          jobType: normaliseJobType(item.type),
+          experienceMin: inferExperienceMin(`${item.title} ${description}`),
+          experienceMax: inferExperienceMax(`${item.title} ${description}`),
+          level: inferLevel(`${item.title} ${description}`),
+          skillsRequired: inferSkills(`${item.title || ''} ${description}`),
+          applyUrl: item.link || 'https://jooble.org',
+          sourcePlatform: 'Jooble',
+          postedAt: item.updated || new Date().toISOString(),
+          fetchedAt: new Date().toISOString(),
+        }
+      })
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : 'failed')
+    }
+  }
+
+  throw new Error(`Jooble failed after ${keys.length} key${keys.length === 1 ? '' : 's'}: ${errors[errors.length - 1] || 'unknown error'}`)
+}
+
+async function fetchRapidApiJobs(
+  search: SearchProfile,
+  input: LiveJobSearchInput,
+  apiKey: string | undefined,
+  sourceName: string,
+): Promise<Job[]> {
+  if (!apiKey) return []
+
+  const location = providerLocation(input.location, search)
+  const query = /^remote$/i.test(location) ? `${search.sourceQuery} remote` : `${search.sourceQuery} in ${location}`
+  const url = new URL('https://jsearch.p.rapidapi.com/search')
+  url.searchParams.set('query', query)
+  url.searchParams.set('num_pages', '1')
+  url.searchParams.set('date_posted', 'month')
+  url.searchParams.set('employment_types', 'FULLTIME,CONTRACTOR,PARTTIME,INTERN')
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      Accept: 'application/json',
+      'X-RapidAPI-Key': apiKey,
+      'X-RapidAPI-Host': 'jsearch.p.rapidapi.com',
+    },
+  })
+  if (!response.ok) throw new Error(`JSearch HTTP ${response.status}`)
+  const data = (await response.json()) as {
+    data?: Array<{
+      job_id?: string
+      employer_name?: string
+      employer_logo?: string | null
+      job_title?: string
+      job_city?: string | null
+      job_state?: string | null
+      job_country?: string | null
+      job_is_remote?: boolean
+      job_description?: string
+      job_apply_link?: string
+      job_posted_at_datetime_utc?: string
+      job_min_salary?: number | null
+      job_max_salary?: number | null
+      job_salary_currency?: string | null
+      job_employment_type?: string | null
+      job_required_skills?: string[] | null
+      job_required_experience?: { required_experience_in_months?: number | null } | null
+    }>
+  }
+
+  return (data.data || []).map((item) => {
+    const description = item.job_description || ''
+    const jobLocation = [item.job_city, item.job_state, item.job_country].filter(Boolean).join(', ') || (item.job_is_remote ? 'Remote' : location)
+    const skills = (item.job_required_skills?.length ? item.job_required_skills : inferSkills(`${item.job_title || ''} ${description}`).map((skill) => skill.skill))
+      .slice(0, 12)
+      .map((skill) => ({ skill, required: true, weight: 1 }))
+    const months = item.job_required_experience?.required_experience_in_months
+    return {
+      id: uuidFromText(`jsearch-${item.job_id || hash(`${item.employer_name}-${item.job_title}-${jobLocation}`)}`),
+      title: item.job_title || 'Untitled role',
+      company: item.employer_name || 'Unknown company',
+      companyLogo: initials(item.employer_name || 'JS'),
+      location: jobLocation,
+      country: item.job_country || countryFromLocation(jobLocation),
+      city: item.job_city || cityFromLocation(jobLocation),
+      isRemote: Boolean(item.job_is_remote) || /remote/i.test(`${jobLocation} ${description}`),
+      workMode: item.job_is_remote ? 'remote' : inferWorkMode(`${jobLocation} ${description}`),
+      description,
+      descriptionHtml: `<p>${escapeHtml(description).replace(/\n/g, '</p><p>')}</p>`,
+      salaryMin: item.job_min_salary || undefined,
+      salaryMax: item.job_max_salary || undefined,
+      salaryCurrency: item.job_salary_currency || 'USD',
+      jobType: normaliseJobType(item.job_employment_type || undefined),
+      experienceMin: months ? Math.floor(months / 12) : inferExperienceMin(`${item.job_title} ${description}`),
+      experienceMax: months ? Math.ceil(months / 12) + 2 : inferExperienceMax(`${item.job_title} ${description}`),
+      level: inferLevel(`${item.job_title} ${description}`),
+      skillsRequired: skills,
+      applyUrl: item.job_apply_link || 'https://www.google.com/search?q=jobs',
+      sourcePlatform: sourceName,
+      postedAt: item.job_posted_at_datetime_utc || new Date().toISOString(),
+      fetchedAt: new Date().toISOString(),
+    }
+  })
+}
+
+async function fetchOpenWebNinjaJobs(
+  search: SearchProfile,
+  input: LiveJobSearchInput,
+  env: Record<string, string | undefined>,
+): Promise<Job[]> {
+  const apiKey = env.OPENWEB_NINJA_API_KEY
+  if (!apiKey) return []
+
+  const location = providerLocation(input.location, search)
+  const url = new URL('https://api.openwebninja.com/jsearch/search-v2')
+  url.searchParams.set('query', /^remote$/i.test(location) ? `${search.sourceQuery} remote` : `${search.sourceQuery} in ${location}`)
+  url.searchParams.set('country', openWebCountryCode(input.location, search.preferredCountries))
+  url.searchParams.set('language', 'en')
+  url.searchParams.set('page', '1')
+  url.searchParams.set('num_pages', '1')
+  url.searchParams.set('date_posted', 'month')
+  if (search.remotePreference === 'remote') url.searchParams.set('work_from_home', 'true')
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      Accept: 'application/json',
+      'x-api-key': apiKey,
+    },
+  })
+  if (!response.ok) throw new Error(`OpenWeb Ninja HTTP ${response.status}`)
+  const data = (await response.json()) as {
+    data?: Array<{
+      job_id?: string
+      employer_name?: string
+      job_title?: string
+      job_city?: string | null
+      job_state?: string | null
+      job_country?: string | null
+      job_is_remote?: boolean
+      job_description?: string
+      job_apply_link?: string
+      job_posted_at_datetime_utc?: string
+      job_min_salary?: number | null
+      job_max_salary?: number | null
+      job_salary_currency?: string | null
+      job_employment_type?: string | null
+      job_required_skills?: string[] | null
+      job_required_experience?: { required_experience_in_months?: number | null } | null
+    }>
+    jobs?: Array<{
+      id?: string
+      title?: string
+      company?: string
+      location?: string
+      description?: string
+      url?: string
+      posted_at?: string
+      salary_min?: number | null
+      salary_max?: number | null
+      skills?: string[] | null
+    }>
+  }
+
+  if (data.data) return mapJSearchLikeJobs(data.data, location, 'OpenWeb Ninja')
+  return (data.jobs || []).map((item) => {
+    const description = item.description || ''
+    const jobLocation = item.location || location
+    return {
+      id: uuidFromText(`openweb-${item.id || hash(`${item.company}-${item.title}-${jobLocation}`)}`),
+      title: item.title || 'Untitled role',
+      company: item.company || 'Unknown company',
+      companyLogo: initials(item.company || 'OW'),
+      location: jobLocation,
+      country: countryFromLocation(jobLocation),
+      city: cityFromLocation(jobLocation),
+      isRemote: /remote/i.test(`${jobLocation} ${description}`),
+      workMode: inferWorkMode(`${jobLocation} ${description}`),
+      description,
+      descriptionHtml: `<p>${escapeHtml(description).replace(/\n/g, '</p><p>')}</p>`,
+      salaryMin: item.salary_min || undefined,
+      salaryMax: item.salary_max || undefined,
+      salaryCurrency: 'USD',
+      jobType: 'full_time',
+      experienceMin: inferExperienceMin(`${item.title} ${description}`),
+      experienceMax: inferExperienceMax(`${item.title} ${description}`),
+      level: inferLevel(`${item.title} ${description}`),
+      skillsRequired: (item.skills?.length ? item.skills : inferSkills(`${item.title || ''} ${description}`).map((skill) => skill.skill))
+        .slice(0, 12)
+        .map((skill) => ({ skill, required: true, weight: 1 })),
+      applyUrl: item.url || 'https://www.google.com/search?q=jobs',
+      sourcePlatform: 'OpenWeb Ninja',
+      postedAt: item.posted_at || new Date().toISOString(),
+      fetchedAt: new Date().toISOString(),
+    }
+  })
+}
+
+function mapJSearchLikeJobs(
+  items: Array<{
+    job_id?: string
+    employer_name?: string
+    job_title?: string
+    job_city?: string | null
+    job_state?: string | null
+    job_country?: string | null
+    job_is_remote?: boolean
+    job_description?: string
+    job_apply_link?: string
+    job_posted_at_datetime_utc?: string
+    job_min_salary?: number | null
+    job_max_salary?: number | null
+    job_salary_currency?: string | null
+    job_employment_type?: string | null
+    job_required_skills?: string[] | null
+    job_required_experience?: { required_experience_in_months?: number | null } | null
+  }>,
+  fallbackLocation: string,
+  sourceName: string,
+) {
+  return items.map((item) => {
+    const description = item.job_description || ''
+    const jobLocation = [item.job_city, item.job_state, item.job_country].filter(Boolean).join(', ') || (item.job_is_remote ? 'Remote' : fallbackLocation)
+    const skills = (item.job_required_skills?.length ? item.job_required_skills : inferSkills(`${item.job_title || ''} ${description}`).map((skill) => skill.skill))
+      .slice(0, 12)
+      .map((skill) => ({ skill, required: true, weight: 1 }))
+    const months = item.job_required_experience?.required_experience_in_months
+    return {
+      id: uuidFromText(`${sourceName.toLowerCase()}-${item.job_id || hash(`${item.employer_name}-${item.job_title}-${jobLocation}`)}`),
+      title: item.job_title || 'Untitled role',
+      company: item.employer_name || 'Unknown company',
+      companyLogo: initials(item.employer_name || sourceName),
+      location: jobLocation,
+      country: item.job_country || countryFromLocation(jobLocation),
+      city: item.job_city || cityFromLocation(jobLocation),
+      isRemote: Boolean(item.job_is_remote) || /remote/i.test(`${jobLocation} ${description}`),
+      workMode: item.job_is_remote ? 'remote' : inferWorkMode(`${jobLocation} ${description}`),
+      description,
+      descriptionHtml: `<p>${escapeHtml(description).replace(/\n/g, '</p><p>')}</p>`,
+      salaryMin: item.job_min_salary || undefined,
+      salaryMax: item.job_max_salary || undefined,
+      salaryCurrency: item.job_salary_currency || 'USD',
+      jobType: normaliseJobType(item.job_employment_type || undefined),
+      experienceMin: months ? Math.floor(months / 12) : inferExperienceMin(`${item.job_title} ${description}`),
+      experienceMax: months ? Math.ceil(months / 12) + 2 : inferExperienceMax(`${item.job_title} ${description}`),
+      level: inferLevel(`${item.job_title} ${description}`),
+      skillsRequired: skills,
+      applyUrl: item.job_apply_link || 'https://www.google.com/search?q=jobs',
+      sourcePlatform: sourceName,
+      postedAt: item.job_posted_at_datetime_utc || new Date().toISOString(),
+      fetchedAt: new Date().toISOString(),
+    }
+  })
+}
+
+function getEnvList(env: Record<string, string | undefined>, listKey: string, singleKeys: string[]) {
+  return [
+    ...(env[listKey] || '').split(','),
+    ...singleKeys.map((key) => env[key] || ''),
+  ]
+    .map((value) => value.trim())
+    .filter((value) => value && !/dummy|placeholder|your-/i.test(value))
+    .filter((value, index, list) => list.indexOf(value) === index)
+}
+
+function providerLocation(inputLocation: string | undefined, search: SearchProfile) {
+  const city = search.preferredCities.find((item) => !isEmptyPreference(item) && !/^remote|any city$/i.test(item))
+  const country = search.preferredCountries.find((item) => !isEmptyPreference(item) && !/^remote$/i.test(item))
+  if (city && country) return `${city}, ${country}`
+  if (inputLocation && !isEmptyPreference(inputLocation)) return inputLocation
+  if (country) return country
+  return 'Remote'
+}
+
+function adzunaCountryCode(inputLocation: string | undefined, preferredCountries: string[]) {
+  const signal = normaliseForMatch([inputLocation, ...preferredCountries].filter(Boolean).join(' '))
+  const entries: Array<[RegExp, string]> = [
+    [/\bunited states|\busa\b|\bus\b|new york|san francisco|los angeles|chicago|austin|seattle|boston|dallas|denver|atlanta|miami/, 'us'],
+    [/\bunited kingdom|\buk\b|\bgreat britain|london|manchester|birmingham|leeds|glasgow|edinburgh|bristol|liverpool/, 'gb'],
+    [/\bcanada|toronto|vancouver|montreal|calgary|ottawa|edmonton|waterloo/, 'ca'],
+    [/\baustralia|sydney|melbourne|brisbane|perth|adelaide|canberra/, 'au'],
+    [/\bindia|bengaluru|bangalore|mumbai|delhi|hyderabad|pune|chennai|gurugram|noida|ahmedabad|kolkata/, 'in'],
+    [/\bgermany|berlin|munich|hamburg|frankfurt|cologne|stuttgart|dusseldorf/, 'de'],
+    [/\bfrance|paris|lyon|marseille|toulouse|lille/, 'fr'],
+    [/\bnetherlands|amsterdam|rotterdam|utrecht|eindhoven|the hague/, 'nl'],
+    [/\bsingapore/, 'sg'],
+    [/\bnew zealand|auckland|wellington/, 'nz'],
+    [/\bsouth africa|cape town|johannesburg/, 'za'],
+  ]
+  return entries.find(([pattern]) => pattern.test(signal))?.[1] || 'us'
+}
+
+function openWebCountryCode(inputLocation: string | undefined, preferredCountries: string[]) {
+  const signal = normaliseForMatch([inputLocation, ...preferredCountries].filter(Boolean).join(' '))
+  const entries: Array<[RegExp, string]> = [
+    [/\bpakistan|karachi|lahore|islamabad|rawalpindi|faisalabad|peshawar|multan|hyderabad|quetta/, 'pk'],
+    [/\bunited arab emirates|\buae\b|dubai|abu dhabi|sharjah|ajman/, 'ae'],
+    [/\bsaudi arabia|riyadh|jeddah|dammam|khobar/, 'sa'],
+    [/\bunited states|\busa\b|\bus\b|new york|san francisco|los angeles|chicago|austin|seattle|boston|dallas|denver|atlanta|miami/, 'us'],
+    [/\bunited kingdom|\buk\b|\bgreat britain|london|manchester|birmingham|leeds|glasgow|edinburgh|bristol|liverpool/, 'gb'],
+    [/\bcanada|toronto|vancouver|montreal|calgary|ottawa|edmonton|waterloo/, 'ca'],
+    [/\baustralia|sydney|melbourne|brisbane|perth|adelaide|canberra/, 'au'],
+    [/\bindia|bengaluru|bangalore|mumbai|delhi|hyderabad|pune|chennai|gurugram|noida|ahmedabad|kolkata/, 'in'],
+    [/\bgermany|berlin|munich|hamburg|frankfurt|cologne|stuttgart|dusseldorf/, 'de'],
+    [/\bfrance|paris|lyon|marseille|toulouse|lille/, 'fr'],
+    [/\bnetherlands|amsterdam|rotterdam|utrecht|eindhoven|the hague/, 'nl'],
+    [/\bsingapore/, 'sg'],
+  ]
+  return entries.find(([pattern]) => pattern.test(signal))?.[1] || 'us'
+}
+
+function currencyForCountry(country: string) {
+  const currencies: Record<string, string> = {
+    au: 'AUD',
+    ca: 'CAD',
+    de: 'EUR',
+    fr: 'EUR',
+    gb: 'GBP',
+    in: 'INR',
+    nl: 'EUR',
+    nz: 'NZD',
+    sg: 'SGD',
+    us: 'USD',
+    za: 'ZAR',
+  }
+  return currencies[country] || 'USD'
+}
+
+function countryFromLocation(location: string) {
+  const parts = location.split(',').map((part) => part.trim()).filter(Boolean)
+  return parts[parts.length - 1] || location || 'Remote'
+}
+
+function cityFromLocation(location: string) {
+  return location.split(',').map((part) => part.trim()).filter(Boolean)[0] || location || 'Remote'
+}
+
+function lastArrayItem(values?: string[]) {
+  return values?.length ? values[values.length - 1] : undefined
+}
+
+function normaliseRemotePreference(value: unknown): RemotePreference {
+  return value === 'hybrid' || value === 'onsite' || value === 'any' || value === 'remote' ? value : 'remote'
+}
+
+function isEmptyPreference(value: string) {
+  return /^(none|n\/a|na|not applicable|no preference)$/i.test(value.trim())
+}
+
 function inferSkills(text: string): SkillRequirement[] {
   const found = skillHints
     .filter((skill) => matchesSkillHint(text, skill))
@@ -333,28 +861,52 @@ function scoreJobRelevance(job: Job, search: SearchProfile) {
   const matchedSecondarySkills = search.secondarySkillTerms.filter(
     (skill) => phraseMatches(haystack, skill) || declaredSkills.some((declared) => skillsEquivalent(declared, skill)),
   )
+  const matchedMustHaveSkills = search.mustHaveSkillTerms.filter(
+    (skill) => phraseMatches(haystack, skill) || declaredSkills.some((declared) => skillsEquivalent(declared, skill)),
+  )
   const matchedBroadSkills = search.broadSkillTerms.filter((skill) => phraseMatches(haystack, skill))
   const roleMatches = search.roleTerms.filter((term) => phraseMatches(title, term) || phraseMatches(haystack, term))
   const requiredCoreMatches = search.coreSkillTerms.length >= 3 ? 2 : search.coreSkillTerms.length ? 1 : 0
+  const requiredMustHaveMatches = search.mustHaveSkillTerms.length
+    ? Math.min(3, Math.max(1, Math.ceil(search.mustHaveSkillTerms.length * 0.45)))
+    : 0
   const hasEnoughSkills = search.coreSkillTerms.length
     ? matchedCoreSkills.length >= requiredCoreMatches
     : matchedSecondarySkills.length >= Math.min(2, search.secondarySkillTerms.length)
+  const hasMustHaveFit =
+    !search.mustHaveSkillTerms.length || matchedMustHaveSkills.length >= requiredMustHaveMatches
   const hasRoleFit =
     roleMatches.length > 0 ||
     titleHasDesiredDomain(title, search) ||
     (hasTechnicalTarget(search) && hasTechnicalRoleTitle(title) && matchedCoreSkills.length >= requiredCoreMatches)
   const experienceFit = hasReasonableExperienceFit(job, search.experienceYears)
+  const locationFit = hasLocationFit(job, search)
+  const salaryFit = hasSalaryFit(job, search)
+  const avoidHit = search.avoidTerms.some((term) => phraseMatches(haystack, term))
   const conflictingDomain = hasConflictingDomain(title, search)
   const disallowedTitle = hasDisallowedTitle(title, search)
 
-  const accept = hasEnoughSkills && hasRoleFit && experienceFit && !conflictingDomain && !disallowedTitle
+  const accept =
+    hasEnoughSkills &&
+    hasMustHaveFit &&
+    hasRoleFit &&
+    experienceFit &&
+    locationFit &&
+    salaryFit &&
+    !avoidHit &&
+    !conflictingDomain &&
+    !disallowedTitle
   const score =
+    matchedMustHaveSkills.length * 36 +
     matchedCoreSkills.length * 45 +
     matchedSecondarySkills.length * 14 +
     matchedBroadSkills.length * 2 +
     roleMatches.length * 16 +
     (titleHasDesiredDomain(title, search) ? 18 : 0) +
     (experienceFit ? 10 : 0) +
+    (locationFit ? 8 : 0) +
+    (salaryFit ? 4 : 0) -
+    (avoidHit ? 120 : 0) +
     Math.max(0, 8 - Math.floor((Date.now() - new Date(job.postedAt).getTime()) / 86_400_000))
 
   return { accept, score }
@@ -366,6 +918,25 @@ function hasReasonableExperienceFit(job: Job, experienceYears?: number) {
   if (job.level === 'lead' && experienceYears < 4) return false
   if (job.level === 'senior' && experienceYears < 2) return false
   return true
+}
+
+function hasLocationFit(job: Job, search: SearchProfile) {
+  if (search.remotePreference === 'any') return true
+  if (search.remotePreference === 'remote') return job.isRemote || job.workMode === 'remote'
+  if (search.remotePreference === 'hybrid' && (job.workMode === 'remote' || job.workMode === 'hybrid')) return true
+
+  const locationText = normaliseForMatch(`${job.location} ${job.city} ${job.country}`)
+  const countries = search.preferredCountries.filter((country) => !isEmptyPreference(country) && !/^remote$/i.test(country))
+  const cities = search.preferredCities.filter((city) => !isEmptyPreference(city) && !/^remote|any city$/i.test(city))
+  if (!countries.length && !cities.length) return true
+  return [...countries, ...cities].some((place) => phraseMatches(locationText, place))
+}
+
+function hasSalaryFit(job: Job, search: SearchProfile) {
+  if (!search.minimumSalary) return true
+  const salary = job.salaryMax ?? job.salaryMin
+  if (!salary) return true
+  return salary >= Math.round(search.minimumSalary * 0.8)
 }
 
 function hasConflictingDomain(title: string, search: SearchProfile) {
@@ -423,6 +994,12 @@ function hasTechnicalTarget(search: SearchProfile) {
     /\b(engineer|developer|software|frontend|backend|full stack|fullstack|web|rails|react|javascript|typescript|node)\b/i.test(
       search.rawQuery,
     ) || desiredDomains(search).size > 0
+  )
+}
+
+function hasRoleLanguage(value: string) {
+  return /\b(engineer|developer|architect|programmer|analyst|designer|manager|specialist|consultant|administrator|lead|intern|director|head)\b/i.test(
+    value,
   )
 }
 

@@ -77,9 +77,15 @@ export function titleSimilarity(targetRole: string, jobTitle: string) {
 }
 
 export function computeMatch(profile: UserProfile, cv: CvProfile, job: Job): JobMatch {
-  const userSkills = cv.skills.map((skill) => skill.skillCanonical || skill.skillName)
+  const userSkills = [
+    ...profile.mustHaveSkills,
+    ...cv.skills.map((skill) => skill.skillCanonical || skill.skillName),
+  ].filter(Boolean)
   const userSkillRanks = new Map(
-    cv.skills.map((skill) => [normaliseSkill(skill.skillCanonical || skill.skillName), Math.min(Math.max(skill.skillRank || 70, 0), 100)]),
+    [
+      ...profile.mustHaveSkills.map((skill) => [normaliseSkill(skill), 86] as const),
+      ...cv.skills.map((skill) => [normaliseSkill(skill.skillCanonical || skill.skillName), Math.min(Math.max(skill.skillRank || 70, 0), 100)] as const),
+    ],
   )
   const requiredSkills = job.skillsRequired.filter((skill) => skill.required)
   const optionalSkills = job.skillsRequired.filter((skill) => !skill.required)
@@ -103,15 +109,10 @@ export function computeMatch(profile: UserProfile, cv: CvProfile, job: Job): Job
   const experienceScore = Math.round(
     experienceFit(cv.totalYearsExperience, job.experienceMin, job.experienceMax) * 20,
   )
-  const titleScore = Math.round(titleSimilarity(profile.targetRole, job.title) * 15)
+  const roleSignal = profile.targetRoles?.length ? profile.targetRoles.join(' ') : profile.targetRole
+  const titleScore = Math.round(titleSimilarity(roleSignal, job.title) * 15)
   const locationScore = Math.round(
-    (profile.preferredRemote
-      ? job.workMode === 'remote'
-        ? 1
-        : job.workMode === 'hybrid'
-          ? 0.72
-          : 0.34
-      : 0.8) * 10,
+    locationFitMultiplier(profile, job) * 10,
   )
   const ageHours = (Date.now() - new Date(job.postedAt).getTime()) / 36e5
   const recencyBonus = ageHours <= 48 ? 5 : ageHours <= 96 ? 3 : 0
@@ -136,6 +137,30 @@ export function computeMatch(profile: UserProfile, cv: CvProfile, job: Job): Job
     missingSkills,
     matchSummary,
   }
+}
+
+function locationFitMultiplier(profile: UserProfile, job: Job) {
+  if (profile.remotePreference === 'any') return 0.88
+  if (profile.remotePreference === 'remote') {
+    if (job.workMode === 'remote' || job.isRemote) return 1
+    if (job.workMode === 'hybrid') return 0.62
+    return 0.22
+  }
+  if (profile.remotePreference === 'hybrid') {
+    if (job.workMode === 'hybrid') return 1
+    if (job.workMode === 'remote') return 0.84
+    return profileLocationMatches(profile, job) ? 0.72 : 0.34
+  }
+  return profileLocationMatches(profile, job) ? 1 : job.workMode === 'remote' ? 0.46 : 0.28
+}
+
+function profileLocationMatches(profile: UserProfile, job: Job) {
+  const places = [...(profile.preferredCountries || []), ...(profile.preferredCities || [])]
+    .filter((place) => !/^(remote|any city|none|n\/a)$/i.test(place))
+    .map((place) => place.toLowerCase())
+  if (!places.length) return true
+  const location = `${job.location} ${job.country} ${job.city}`.toLowerCase()
+  return places.some((place) => location.includes(place))
 }
 
 function skillRankMultiplier(skill: string, userSkillRanks: Map<string, number>) {
