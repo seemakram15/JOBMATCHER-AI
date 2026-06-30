@@ -4,7 +4,7 @@ Jobmatcher is an AI-ranked job discovery and application tracking app based on t
 
 ## Current Scope
 
-- Supabase email/password signup and signin.
+- Supabase email/password signup and signin, with custom Brevo password-reset emails that use Jobmatcher-owned recovery links.
 - Dashboard with user-owned KPIs, activity chart, application funnel, and skills gap.
 - Job discovery with live extraction, score-first cards, advanced filters, detail panel, sanitized descriptions, save, and apply tracking.
 - CV hub with profile/CV/preference onboarding, local PDF/DOCX/TXT parsing, editable extracted experience, manual skills, and multiple CV activation.
@@ -39,7 +39,7 @@ npm run build
 
 ## Environment
 
-Copy `.env.example` to `.env.local` and replace the sample values when Supabase, Apify, SerpAPI, Resend, OAuth, and Upstash are ready. `SUPABASE_SERVICE_ROLE_KEY` is required for no-email admin signup. The CV parser works locally without an AI key.
+Copy `.env.example` to `.env.local` and replace the sample values when Supabase, Apify, SerpAPI, Brevo, OAuth, and Upstash are ready. `SUPABASE_SERVICE_ROLE_KEY` is required for no-email admin signup and custom password-reset link generation. `BREVO_API_KEY` plus a verified `BREVO_SENDER_EMAIL` are required to send the customized reset emails. The CV parser works locally without an AI key.
 
 ## Backend Scaffolds
 

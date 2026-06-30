@@ -3536,11 +3536,11 @@ function SettingsPage() {
         <h2 className="text-lg font-semibold text-ink">Environment readiness</h2>
         <div className="mt-4 space-y-3">
           {[
-            ['Supabase', 'SUPABASE_URL, SUPABASE_ANON_KEY, service-role key'],
+            ['Supabase', 'SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY, service-role key'],
             ['CV parser', 'PDF/DOCX/TXT parsing runs locally through /api/parse-cv'],
             ['Apify', 'APIFY_API_TOKEN plus webhook secret'],
-            ['Email', 'RESEND_API_KEY for alerts and digests'],
-            ['Redis', 'Upstash REST credentials for rate limits'],
+            ['Email', 'BREVO_API_KEY and verified sender for password recovery'],
+            ['Redis', 'Upstash REST credentials for shared rate limits'],
           ].map(([label, detail]) => (
             <div key={label} className="rounded-md border border-line bg-bg/60 p-4">
               <p className="font-semibold text-ink">{label}</p>
