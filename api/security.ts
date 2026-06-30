@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { z } from 'zod'
 
 const rateBuckets = new Map<string, { count: number; resetAt: number }>()
@@ -135,4 +136,70 @@ function getClientIp(req: IncomingMessage) {
   const forwarded = req.headers['x-forwarded-for']
   if (typeof forwarded === 'string' && forwarded) return forwarded.split(',')[0].trim()
   return req.socket.remoteAddress || 'unknown'
+}
+
+// --- Service-role client + admin caller verification (for api/admin.ts) ---
+
+let serviceClient: SupabaseClient | null = null
+
+export function getServiceClient(): SupabaseClient {
+  if (serviceClient) return serviceClient
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !key) {
+    throw new ApiError(503, 'ADMIN_NOT_CONFIGURED', 'Admin API requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.')
+  }
+  serviceClient = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
+  return serviceClient
+}
+
+export interface AdminCaller {
+  id: string
+  email: string
+  role: 'admin' | 'superadmin'
+}
+
+function getBearerToken(req: IncomingMessage): string {
+  const header = req.headers['authorization']
+  const value = Array.isArray(header) ? header[0] : header
+  if (!value || !value.toLowerCase().startsWith('bearer ')) {
+    throw new ApiError(401, 'UNAUTHENTICATED', 'Missing bearer token.')
+  }
+  return value.slice(7).trim()
+}
+
+/**
+ * Verifies the caller's Supabase access token and confirms their profile role
+ * is admin (or superadmin). Throws ApiError on any failure. RLS stays untouched;
+ * this is the single gate for cross-user admin reads.
+ */
+export async function requireAdminCaller(
+  req: IncomingMessage,
+  options: { superadmin?: boolean } = {},
+): Promise<AdminCaller> {
+  const token = getBearerToken(req)
+  const client = getServiceClient()
+
+  const { data, error } = await client.auth.getUser(token)
+  if (error || !data.user) {
+    throw new ApiError(401, 'UNAUTHENTICATED', 'Invalid or expired session.')
+  }
+
+  const { data: profile, error: profileError } = await client
+    .from('users')
+    .select('id, email, role, is_active')
+    .eq('id', data.user.id)
+    .single()
+
+  if (profileError || !profile) {
+    throw new ApiError(403, 'FORBIDDEN', 'Account profile not found.')
+  }
+  if (!profile.is_active || (profile.role !== 'admin' && profile.role !== 'superadmin')) {
+    throw new ApiError(403, 'FORBIDDEN', 'Admin access is required for this action.')
+  }
+  if (options.superadmin && profile.role !== 'superadmin') {
+    throw new ApiError(403, 'FORBIDDEN', 'Superadmin access is required for this action.')
+  }
+
+  return { id: profile.id as string, email: profile.email as string, role: profile.role as 'admin' | 'superadmin' }
 }

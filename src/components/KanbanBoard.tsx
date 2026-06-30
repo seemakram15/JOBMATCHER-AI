@@ -10,20 +10,22 @@ interface KanbanBoardProps {
   applications: Application[]
   scoredJobs: ScoredJob[]
   onMove: (applicationId: string, status: ApplicationStatus) => void
+  readOnly?: boolean
 }
 
-const columns: { status: ApplicationStatus; title: string }[] = [
-  { status: 'saved', title: 'Saved' },
-  { status: 'applied', title: 'Applied' },
-  { status: 'interviewing', title: 'Interviewing' },
-  { status: 'offer', title: 'Offer' },
-  { status: 'rejected', title: 'Rejected' },
-  { status: 'withdrawn', title: 'Withdrawn' },
-]
+const STATUS_META: Record<ApplicationStatus, { title: string; dot: string; top: string }> = {
+  saved: { title: 'Saved', dot: 'bg-muted', top: 'border-t-muted/50' },
+  applied: { title: 'Applied', dot: 'bg-primary', top: 'border-t-primary' },
+  interviewing: { title: 'Interviewing', dot: 'bg-warning', top: 'border-t-warning' },
+  offer: { title: 'Offer', dot: 'bg-success', top: 'border-t-success' },
+  rejected: { title: 'Rejected', dot: 'bg-danger', top: 'border-t-danger' },
+  withdrawn: { title: 'Withdrawn', dot: 'bg-muted', top: 'border-t-muted/50' },
+  archived: { title: 'Archived', dot: 'bg-muted', top: 'border-t-muted/50' },
+}
 
-const statusOptions = columns
+const columns: ApplicationStatus[] = ['saved', 'applied', 'interviewing', 'offer', 'rejected', 'withdrawn']
 
-export function KanbanBoard({ applications, scoredJobs, onMove }: KanbanBoardProps) {
+export function KanbanBoard({ applications, scoredJobs, onMove, readOnly = false }: KanbanBoardProps) {
   const [selectedApplicationId, setSelectedApplicationId] = useState<string | null>(null)
   const selectedApplication = applications.find((application) => application.id === selectedApplicationId)
   const selectedScoredJob = selectedApplication
@@ -36,8 +38,9 @@ export function KanbanBoard({ applications, scoredJobs, onMove }: KanbanBoardPro
   )
 
   const handleDragEnd = (event: DragEndEvent) => {
+    if (readOnly) return
     const destination = event.over?.id as ApplicationStatus | undefined
-    if (destination && columns.some((column) => column.status === destination)) {
+    if (destination && columns.includes(destination)) {
       onMove(String(event.active.id), destination)
     }
   }
@@ -45,11 +48,11 @@ export function KanbanBoard({ applications, scoredJobs, onMove }: KanbanBoardPro
   return (
     <>
       <DndContext onDragEnd={handleDragEnd}>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-          {columns.map((column) => {
-            const items = applications.filter((application) => application.status === column.status)
+        <div className="flex gap-4 overflow-x-auto pb-3">
+          {columns.map((status) => {
+            const items = applications.filter((application) => application.status === status)
             return (
-              <KanbanColumn key={column.status} status={column.status} title={column.title} count={items.length}>
+              <KanbanColumn key={status} status={status} count={items.length} readOnly={readOnly}>
                 {items.map((application) => {
                   const scoredJob = scoredJobById.get(application.jobId)
                   return scoredJob ? (
@@ -57,10 +60,16 @@ export function KanbanBoard({ applications, scoredJobs, onMove }: KanbanBoardPro
                       key={application.id}
                       application={application}
                       scoredJob={scoredJob}
+                      readOnly={readOnly}
                       onOpen={() => setSelectedApplicationId(application.id)}
                     />
                   ) : null
                 })}
+                {items.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-line bg-bg/40 p-4 text-center text-xs text-muted">
+                    Nothing here yet
+                  </p>
+                ) : null}
               </KanbanColumn>
             )
           })}
@@ -71,6 +80,7 @@ export function KanbanBoard({ applications, scoredJobs, onMove }: KanbanBoardPro
         <ApplicationModal
           application={selectedApplication}
           scoredJob={selectedScoredJob}
+          readOnly={readOnly}
           onClose={() => setSelectedApplicationId(null)}
           onStatusChange={(status) => onMove(selectedApplication.id, status)}
         />
@@ -81,29 +91,33 @@ export function KanbanBoard({ applications, scoredJobs, onMove }: KanbanBoardPro
 
 function KanbanColumn({
   status,
-  title,
   count,
+  readOnly,
   children,
 }: {
   status: ApplicationStatus
-  title: string
   count: number
+  readOnly: boolean
   children: React.ReactNode
 }) {
-  const { isOver, setNodeRef } = useDroppable({ id: status })
+  const { isOver, setNodeRef } = useDroppable({ id: status, disabled: readOnly })
+  const meta = STATUS_META[status]
 
   return (
     <section
       ref={setNodeRef}
-      className={`min-h-[360px] rounded-md border p-3 transition ${
-        isOver ? 'border-primary bg-primary/10' : 'border-line bg-panel/80'
+      className={`flex max-h-[70vh] w-72 shrink-0 flex-col rounded-2xl border border-t-4 ${meta.top} p-3 transition ${
+        isOver ? 'border-primary bg-primary/5' : 'border-line bg-panel/70'
       }`}
     >
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-ink">{title}</h3>
-        <span className="rounded-md border border-line bg-bg px-2 py-1 font-mono text-xs text-muted">{count}</span>
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-ink">
+          <span className={`h-2 w-2 rounded-full ${meta.dot}`} />
+          {meta.title}
+        </h3>
+        <span className="rounded-full border border-line bg-bg px-2 py-0.5 font-mono text-xs text-muted">{count}</span>
       </div>
-      <div className="space-y-3">{children}</div>
+      <div className="space-y-3 overflow-y-auto">{children}</div>
     </section>
   )
 }
@@ -111,35 +125,35 @@ function KanbanColumn({
 function ApplicationCard({
   application,
   scoredJob,
+  readOnly,
   onOpen,
 }: {
   application: Application
   scoredJob: ScoredJob
+  readOnly: boolean
   onOpen: () => void
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: application.id })
-  const style = {
-    transform: CSS.Translate.toString(transform),
-  }
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: application.id, disabled: readOnly })
+  const style = { transform: CSS.Translate.toString(transform) }
 
   return (
     <article
       ref={setNodeRef}
       style={style}
-      className={`rounded-md border border-line bg-bg/80 p-3 shadow-lg transition hover:border-primary ${
-        isDragging ? 'opacity-70' : ''
-      }`}
+      className={`rounded-xl border border-line bg-bg/70 p-3 transition hover:border-primary/50 ${isDragging ? 'opacity-70 shadow-glow' : ''}`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <button
-          className="mt-1 text-muted hover:text-ink"
-          aria-label={`Move ${scoredJob.job.title}`}
-          title="Move"
-          {...listeners}
-          {...attributes}
-        >
-          <GripVertical size={16} />
-        </button>
+      <div className="flex items-start justify-between gap-2">
+        {!readOnly ? (
+          <button
+            className="mt-0.5 cursor-grab text-muted hover:text-ink active:cursor-grabbing"
+            aria-label={`Move ${scoredJob.job.title}`}
+            title="Drag to move"
+            {...listeners}
+            {...attributes}
+          >
+            <GripVertical size={16} />
+          </button>
+        ) : null}
         <button className="min-w-0 flex-1 text-left" onClick={onOpen}>
           <p className="truncate text-xs text-muted">{scoredJob.job.company}</p>
           <h4 className="mt-1 line-clamp-2 text-sm font-semibold text-ink">{scoredJob.job.title}</h4>
@@ -147,9 +161,9 @@ function ApplicationCard({
         <ScoreBadge score={scoredJob.match.totalScore} size="sm" />
       </div>
       <button className="mt-3 block w-full text-left" onClick={onOpen}>
-        <p className="line-clamp-3 text-xs leading-5 text-muted">{application.notes}</p>
+        {application.notes ? <p className="line-clamp-2 text-xs leading-5 text-muted">{application.notes}</p> : null}
         {application.reminderDate ? (
-          <div className="mt-3 flex items-center gap-2 text-xs text-warning">
+          <div className="mt-2 inline-flex items-center gap-1.5 rounded-md bg-warning/10 px-2 py-1 text-xs text-warning">
             <CalendarClock size={13} />
             {application.reminderDate}
           </div>
@@ -162,17 +176,19 @@ function ApplicationCard({
 function ApplicationModal({
   application,
   scoredJob,
+  readOnly,
   onClose,
   onStatusChange,
 }: {
   application: Application
   scoredJob: ScoredJob
+  readOnly: boolean
   onClose: () => void
   onStatusChange: (status: ApplicationStatus) => void
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <section className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-md border border-line bg-panel shadow-soft">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+      <section className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-line bg-panel shadow-soft">
         <div className="flex items-start justify-between gap-4 border-b border-line p-5">
           <div>
             <p className="text-sm text-muted">{scoredJob.job.company}</p>
@@ -193,21 +209,19 @@ function ApplicationModal({
 
         <div className="grid gap-5 p-5 lg:grid-cols-[1fr_220px]">
           <div className="space-y-5">
-            <div className="rounded-md border border-line bg-bg/60 p-4">
-              <p className="text-sm font-semibold text-ink">Application notes</p>
+            <div className="rounded-xl border border-line bg-bg/60 p-4">
+              <p className="text-sm font-semibold text-ink">Notes</p>
               <p className="mt-2 text-sm leading-6 text-muted">{application.notes || 'No notes yet.'}</p>
             </div>
-
             <div>
               <p className="mb-3 text-sm font-semibold text-ink">Job details</p>
               <p className="text-sm leading-7 text-muted">{scoredJob.job.description}</p>
             </div>
-
             <div>
               <p className="mb-3 text-sm font-semibold text-ink">Matched skills</p>
               <div className="flex flex-wrap gap-2">
                 {scoredJob.match.matchedSkills.map((skill) => (
-                  <span key={skill} className="rounded-md border border-success/30 bg-success/10 px-2 py-1 text-xs text-success">
+                  <span key={skill} className="rounded-lg border border-success/30 bg-success/10 px-2 py-1 text-xs text-success">
                     {skill}
                   </span>
                 ))}
@@ -219,23 +233,30 @@ function ApplicationModal({
             <div className="flex justify-center">
               <ScoreBadge score={scoredJob.match.totalScore} size="lg" />
             </div>
-            <label className="block text-xs font-medium uppercase text-muted">
-              Status
-              <PrettySelect<ApplicationStatus>
-                className="mt-2 normal-case"
-                value={application.status}
-                options={statusOptions.map((option) => ({ value: option.status, label: option.title }))}
-                onChange={onStatusChange}
-                ariaLabel="Application status"
-              />
-            </label>
+            {readOnly ? (
+              <div className="rounded-xl border border-line bg-bg/60 p-3 text-center">
+                <p className="text-xs uppercase tracking-wide text-muted">Status</p>
+                <p className="mt-1 font-semibold text-ink">{STATUS_META[application.status].title}</p>
+              </div>
+            ) : (
+              <label className="block text-xs font-medium uppercase text-muted">
+                Status
+                <PrettySelect<ApplicationStatus>
+                  className="mt-2 normal-case"
+                  value={application.status}
+                  options={columns.map((status) => ({ value: status, label: STATUS_META[status].title }))}
+                  onChange={onStatusChange}
+                  ariaLabel="Application status"
+                />
+              </label>
+            )}
             <a
-              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-semibold text-white"
+              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-white transition hover:bg-primary/90"
               href={scoredJob.job.applyUrl}
               target="_blank"
               rel="noreferrer"
             >
-              Source listing <ExternalLink size={16} />
+              View listing <ExternalLink size={16} />
             </a>
           </aside>
         </div>
