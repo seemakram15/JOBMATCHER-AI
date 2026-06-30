@@ -230,6 +230,42 @@
     @apply inline-flex items-center justify-center gap-2 rounded-md border border-line bg-panel px-4 py-2 text-sm font-semibold text-ink transition hover:border-primary hover:bg-primary/10;
   }
 
+  .gradient-text {
+    background-image: linear-gradient(
+      100deg,
+      rgb(var(--color-ink)) 0%,
+      rgb(var(--color-primary)) 42%,
+      rgb(var(--color-cyan)) 70%,
+      rgb(var(--color-success)) 100%
+    );
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+
+  .glass {
+    background: rgb(var(--color-panel) / 0.55);
+    border: 1px solid rgb(var(--color-ink) / 0.08);
+    backdrop-filter: blur(18px) saturate(140%);
+    -webkit-backdrop-filter: blur(18px) saturate(140%);
+  }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(to right, rgb(var(--color-ink) / 0.05) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(var(--color-ink) / 0.05) 1px, transparent 1px);
+    background-size: 48px 48px;
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+  }
+
+  .marquee-mask {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+    mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
+  }
+
   .skill-range {
     height: 26px;
     accent-color: rgb(var(--color-primary));
@@ -276,5 +312,18 @@
     border-radius: 999px;
     background: rgb(var(--color-primary));
     box-shadow: 0 8px 20px rgb(var(--color-primary) / 0.28);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee,
+  .animate-marquee-reverse,
+  .animate-float,
+  .animate-aurora,
+  .animate-shimmer,
+  .animate-spin-slow,
+  .animate-pulse-ring,
+  .animate-gradient-x {
+    animation: none !important;
   }
 }
