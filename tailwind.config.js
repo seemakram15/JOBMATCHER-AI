@@ -14,6 +14,8 @@ export default {
         warning: 'rgb(var(--color-warning) / <alpha-value>)',
         danger: 'rgb(var(--color-danger) / <alpha-value>)',
         cyan: 'rgb(var(--color-cyan) / <alpha-value>)',
+        violet: 'rgb(var(--color-violet) / <alpha-value>)',
+        pink: 'rgb(var(--color-pink) / <alpha-value>)',
         line: 'rgb(var(--color-line) / <alpha-value>)',
       },
       fontFamily: {

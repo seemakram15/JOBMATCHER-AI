@@ -7,16 +7,19 @@
 @layer base {
   :root {
     color-scheme: dark;
-    --color-bg: 18 18 24;
-    --color-panel: 30 30 46;
-    --color-ink: 232 234 237;
-    --color-muted: 139 147 167;
-    --color-primary: 74 144 217;
-    --color-success: 76 175 112;
-    --color-warning: 255 193 7;
-    --color-danger: 239 83 80;
-    --color-cyan: 0 172 193;
-    --color-line: 45 45 58;
+    /* Aurora Indigo — dark */
+    --color-bg: 11 15 26;
+    --color-panel: 20 26 42;
+    --color-ink: 232 234 242;
+    --color-muted: 142 150 170;
+    --color-primary: 99 102 241;
+    --color-success: 16 185 129;
+    --color-warning: 245 158 11;
+    --color-danger: 244 63 94;
+    --color-cyan: 6 182 212;
+    --color-violet: 139 92 246;
+    --color-pink: 236 72 153;
+    --color-line: 35 42 59;
     --shadow-soft: 0 0 0;
     font-family: Inter, system-ui, sans-serif;
     background: rgb(var(--color-bg));
@@ -30,17 +33,20 @@
 
   :root.light {
     color-scheme: light;
-    --color-bg: 248 250 252;
+    /* Aurora Indigo — light */
+    --color-bg: 247 248 252;
     --color-panel: 255 255 255;
-    --color-ink: 15 23 42;
-    --color-muted: 86 100 118;
-    --color-primary: 37 99 235;
-    --color-success: 22 163 74;
-    --color-warning: 202 138 4;
-    --color-danger: 220 38 38;
+    --color-ink: 17 24 39;
+    --color-muted: 90 99 120;
+    --color-primary: 79 70 229;
+    --color-success: 5 150 105;
+    --color-warning: 217 119 6;
+    --color-danger: 225 29 72;
     --color-cyan: 8 145 178;
-    --color-line: 219 226 236;
-    --shadow-soft: 58 76 116;
+    --color-violet: 124 58 237;
+    --color-pink: 219 39 119;
+    --color-line: 224 229 240;
+    --shadow-soft: 79 70 229;
   }
 
   :root.dark {
@@ -266,6 +272,54 @@
     mask-image: linear-gradient(to right, transparent, #000 12%, #000 88%, transparent);
   }
 
+  .job-description {
+    font-size: 0.875rem;
+    line-height: 1.7;
+    color: rgb(var(--color-muted));
+    word-break: break-word;
+  }
+
+  .job-description p {
+    margin: 0 0 0.85rem;
+  }
+
+  .job-description ul,
+  .job-description ol {
+    margin: 0 0 0.95rem;
+    padding-left: 1.25rem;
+  }
+
+  .job-description ul {
+    list-style: disc;
+  }
+
+  .job-description ol {
+    list-style: decimal;
+  }
+
+  .job-description li {
+    margin: 0.3rem 0;
+  }
+
+  .job-description li::marker {
+    color: rgb(var(--color-primary));
+  }
+
+  .job-description strong,
+  .job-description b {
+    color: rgb(var(--color-ink));
+    font-weight: 600;
+  }
+
+  .job-description a {
+    color: rgb(var(--color-primary));
+    text-decoration: underline;
+  }
+
+  .job-description > *:last-child {
+    margin-bottom: 0;
+  }
+
   .skill-range {
     height: 26px;
     accent-color: rgb(var(--color-primary));
@@ -325,5 +379,18 @@
   .animate-pulse-ring,
   .animate-gradient-x {
     animation: none !important;
+  }
+}
+
+@layer utilities {
+  /* Skip rendering work for offscreen rows so long lists scroll smoothly. */
+  .cv-auto {
+    content-visibility: auto;
+    contain-intrinsic-size: 1px 320px;
+  }
+
+  .cv-auto-sm {
+    content-visibility: auto;
+    contain-intrinsic-size: 1px 132px;
   }
 }

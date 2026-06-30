@@ -1,4 +1,4 @@
-import { BriefcaseBusiness, DollarSign, Layers3, RotateCcw, Search, SlidersHorizontal } from 'lucide-react'
+import { Banknote, Briefcase, Clock, Layers3, RotateCcw, SlidersHorizontal } from 'lucide-react'
 import type { ExperienceLevel, JobFilters, JobType, WorkMode } from '../types'
 import { PrettySelect } from './PrettySelect'
 
@@ -32,181 +32,150 @@ const levels: { value: ExperienceLevel; label: string }[] = [
 const datePostedOptions: { value: JobFilters['datePosted']; label: string }[] = [
   { value: 'any', label: 'Any time' },
   { value: 'today', label: 'Today' },
-  { value: '3days', label: '3 days' },
+  { value: '3days', label: 'Last 3 days' },
   { value: 'week', label: 'Last week' },
   { value: 'month', label: 'Last month' },
-]
-
-const sortOptions: { value: JobFilters['sort']; label: string }[] = [
-  { value: 'score', label: 'Score' },
-  { value: 'date', label: 'Date' },
-  { value: 'salary', label: 'Salary' },
-  { value: 'company', label: 'Company' },
 ]
 
 function toggleValue<T extends string>(values: T[], value: T) {
   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value]
 }
 
+function Chip({ active, label, onClick }: { active: boolean; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
+        active ? 'border-cyan bg-cyan/15 text-cyan' : 'border-line bg-bg/60 text-muted hover:border-cyan/40 hover:text-ink'
+      }`}
+    >
+      {label}
+    </button>
+  )
+}
+
+function Group({ label, icon, children }: { label: string; icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted">
+        {icon}
+        {label}
+      </p>
+      <div className="flex flex-wrap gap-2">{children}</div>
+    </div>
+  )
+}
+
 export function FilterPanel({ filters, sources, onChange, onReset }: FilterPanelProps) {
   return (
-    <aside className="panel p-4 lg:sticky lg:top-4">
+    <div className="panel p-5">
       <div className="mb-5 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/15 text-primary">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan/15 text-cyan">
             <SlidersHorizontal size={17} />
           </span>
           <div>
             <p className="text-sm font-semibold text-ink">Filters</p>
-            <p className="text-xs text-muted">Narrow by fit</p>
+            <p className="text-xs text-muted">Narrow your matches</p>
           </div>
         </div>
-        <button className="icon-button" onClick={onReset} aria-label="Reset filters" title="Reset filters">
-          <RotateCcw size={15} />
+        <button className="secondary-button h-9 text-xs" onClick={onReset}>
+          <RotateCcw size={14} /> Reset
         </button>
       </div>
 
-      <label className="field-label" htmlFor="search">
-        Search
-      </label>
-      <div className="field-shell">
-        <Search size={15} className="text-muted" />
-        <input
-          id="search"
-          value={filters.search}
-          onChange={(event) => onChange({ search: event.target.value })}
-          placeholder="Title, company, skill"
-        />
-      </div>
-
-      <div className="mt-5">
-        <div className="flex items-center justify-between text-xs font-medium uppercase text-muted">
-          <span>Minimum score</span>
-          <span className="font-mono text-primary">{filters.scoreMin}%</span>
-        </div>
-        <input
-          className="mt-3 w-full accent-primary"
-          type="range"
-          min={0}
-          max={100}
-          step={5}
-          value={filters.scoreMin}
-          onChange={(event) => onChange({ scoreMin: Number(event.target.value) })}
-          aria-label="Minimum match score"
-        />
-      </div>
-
-      <div className="mt-5">
-        <div className="mb-2 flex items-center justify-between text-xs font-medium uppercase text-muted">
-          <span>Minimum salary</span>
-          <span className="font-mono text-primary">{filters.salaryMin ? `$${Math.round(filters.salaryMin / 1000)}k` : 'Any'}</span>
-        </div>
-        <div className="field-shell">
-          <DollarSign size={15} className="text-muted" />
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+        <div className="lg:col-span-3">
+          <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted">
+            <span>Minimum match score</span>
+            <span className="font-mono text-cyan">{filters.scoreMin}%</span>
+          </div>
           <input
-            type="number"
+            className="skill-range mt-3 w-full"
+            type="range"
             min={0}
-            step={5000}
-            value={filters.salaryMin || ''}
-            onChange={(event) => onChange({ salaryMin: Math.max(0, Number(event.target.value) || 0) })}
-            placeholder="Any salary"
-            aria-label="Minimum salary"
+            max={100}
+            step={5}
+            value={filters.scoreMin}
+            onChange={(event) => onChange({ scoreMin: Number(event.target.value) })}
+            style={{ ['--rank' as string]: `${filters.scoreMin}%` }}
+            aria-label="Minimum match score"
           />
         </div>
-      </div>
 
-      <FilterGroup title="Work mode" icon={<Layers3 size={14} />}>
-        {workModes.map((option) => (
-          <label key={option.value} className="flex items-center gap-2 rounded-md border border-line bg-bg/55 px-3 py-2 text-sm text-ink transition hover:border-primary/60">
-            <input
-              type="checkbox"
-              className="accent-primary"
-              checked={filters.workModes.includes(option.value)}
-              onChange={() => onChange({ workModes: toggleValue(filters.workModes, option.value) })}
-            />
-            {option.label}
-          </label>
-        ))}
-      </FilterGroup>
-
-      <FilterGroup title="Job type" icon={<BriefcaseBusiness size={14} />}>
-        {jobTypes.map((option) => (
-          <label key={option.value} className="flex items-center gap-2 rounded-md border border-line bg-bg/55 px-3 py-2 text-sm text-ink transition hover:border-primary/60">
-            <input
-              type="checkbox"
-              className="accent-primary"
-              checked={filters.jobTypes.includes(option.value)}
-              onChange={() => onChange({ jobTypes: toggleValue(filters.jobTypes, option.value) })}
-            />
-            {option.label}
-          </label>
-        ))}
-      </FilterGroup>
-
-      <FilterGroup title="Level" icon={<SlidersHorizontal size={14} />}>
-        <div className="grid grid-cols-2 gap-2">
-          {levels.map((option) => (
-            <button
+        <Group label="Work mode" icon={<Layers3 size={13} />}>
+          {workModes.map((option) => (
+            <Chip
               key={option.value}
-              className={`rounded-md border px-3 py-2 text-sm transition ${
-                filters.levels.includes(option.value)
-                  ? 'border-primary bg-primary/15 text-primary'
-                  : 'border-line bg-bg/70 text-muted hover:text-ink'
-              }`}
-              onClick={() => onChange({ levels: toggleValue(filters.levels, option.value) })}
-            >
-              {option.label}
-            </button>
+              active={filters.workModes.includes(option.value)}
+              label={option.label}
+              onClick={() => onChange({ workModes: toggleValue(filters.workModes, option.value) })}
+            />
           ))}
-        </div>
-      </FilterGroup>
+        </Group>
 
-      <FilterGroup title="Source" icon={<Search size={14} />}>
-        <PrettySelect
-          value={filters.sources[0] ?? ''}
-          options={[
-            { value: '', label: 'All sources' },
-            ...sources.map((source) => ({ value: source, label: source })),
-          ]}
-          onChange={(source) => onChange({ sources: source ? [source] : [] })}
-          ariaLabel="Source platform"
-        />
-      </FilterGroup>
+        <Group label="Job type" icon={<Briefcase size={13} />}>
+          {jobTypes.map((option) => (
+            <Chip
+              key={option.value}
+              active={filters.jobTypes.includes(option.value)}
+              label={option.label}
+              onClick={() => onChange({ jobTypes: toggleValue(filters.jobTypes, option.value) })}
+            />
+          ))}
+        </Group>
 
-      <div className="mt-5 grid grid-cols-2 gap-3">
+        <Group label="Experience level" icon={<SlidersHorizontal size={13} />}>
+          {levels.map((option) => (
+            <Chip
+              key={option.value}
+              active={filters.levels.includes(option.value)}
+              label={option.label}
+              onClick={() => onChange({ levels: toggleValue(filters.levels, option.value) })}
+            />
+          ))}
+        </Group>
+
         <label className="field-label">
-          Date
+          Source
+          <PrettySelect
+            className="mt-2"
+            value={filters.sources[0] ?? ''}
+            options={[{ value: '', label: 'All sources' }, ...sources.map((source) => ({ value: source, label: source }))]}
+            onChange={(source) => onChange({ sources: source ? [source] : [] })}
+            ariaLabel="Source platform"
+          />
+        </label>
+
+        <label className="field-label">
+          Date posted
           <PrettySelect
             className="mt-2"
             value={filters.datePosted}
             options={datePostedOptions}
             onChange={(datePosted) => onChange({ datePosted })}
             ariaLabel="Date posted"
+            icon={<Clock size={15} />}
           />
         </label>
+
         <label className="field-label">
-          Sort
-          <PrettySelect
-            className="mt-2"
-            value={filters.sort}
-            options={sortOptions}
-            onChange={(sort) => onChange({ sort })}
-            ariaLabel="Sort jobs"
-          />
+          Minimum salary
+          <span className="field-shell normal-case">
+            <Banknote size={15} className="text-success" />
+            <input
+              type="number"
+              min={0}
+              step={5000}
+              value={filters.salaryMin || ''}
+              onChange={(event) => onChange({ salaryMin: Math.max(0, Number(event.target.value) || 0) })}
+              placeholder="Any salary"
+              aria-label="Minimum salary"
+            />
+          </span>
         </label>
       </div>
-    </aside>
-  )
-}
-
-function FilterGroup({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className="mt-5">
-      <p className="mb-3 flex items-center gap-2 text-xs font-medium uppercase text-muted">
-        {icon}
-        {title}
-      </p>
-      <div className="space-y-2">{children}</div>
     </div>
   )
 }

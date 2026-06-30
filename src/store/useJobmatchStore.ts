@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { defaultFilters, emptyCv, createEmptyProfile } from '../lib/defaults'
 import { hasSupabaseConfig, requireSupabase, supabase } from '../lib/supabase'
+import { getUserWorkspace } from '../lib/adminClient'
 import { scoreJobs } from '../lib/scoring'
 import {
   activateCvInDb,
@@ -24,6 +25,7 @@ import type {
   CvExperience,
   CvProfile,
   CvSkill,
+  ImpersonationState,
   Job,
   JobFilters,
   LiveJobSourceResult,
@@ -53,13 +55,16 @@ interface JobmatchState {
   searchedJobsCount: number
   lastLiveSearchAt: string | null
   liveJobSources: LiveJobSourceResult[]
+  impersonation: ImpersonationState | null
   initializeAuth: () => Promise<void>
-  signUp: (email: string, password: string, name: string) => Promise<void>
+  signUp: (email: string, password: string, name: string) => Promise<{ confirmationRequired: boolean }>
   signIn: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
   requestPasswordReset: (email: string) => Promise<void>
   updatePassword: (newPassword: string, currentPassword?: string) => Promise<void>
   clearRecoveryMode: () => void
+  viewAsUser: (userId: string) => Promise<void>
+  exitImpersonation: () => void
   setSelectedJob: (jobId: string) => void
   setFilters: (filters: Partial<JobFilters>) => void
   resetFilters: () => void
@@ -81,6 +86,7 @@ interface JobmatchState {
 }
 
 let authListenerStarted = false
+let recoveryHandled = false
 
 type WorkspaceCache = Pick<
   JobmatchState,
@@ -112,19 +118,21 @@ function isRecoveryUrl() {
   return hash.includes('type=recovery') || new URLSearchParams(search).get('mode') === 'recovery'
 }
 
-function getRecoveryTokenHash() {
-  if (typeof window === 'undefined') return ''
+function getAuthActionToken(): { type: 'recovery' | 'signup'; tokenHash: string } | null {
+  if (typeof window === 'undefined') return null
   const searchParams = new URLSearchParams(window.location.search)
   const hashParams = new URLSearchParams((window.location.hash || '').replace(/^#/, ''))
   const type = searchParams.get('type') || hashParams.get('type')
-  if (type !== 'recovery') return ''
-  return searchParams.get('token_hash') || hashParams.get('token_hash') || ''
+  if (type !== 'recovery' && type !== 'signup') return null
+  const tokenHash = searchParams.get('token_hash') || hashParams.get('token_hash') || ''
+  if (!tokenHash) return null
+  return { type, tokenHash }
 }
 
-function clearRecoveryTokenFromUrl() {
+function clearAuthTokenFromUrl(mode: string) {
   if (typeof window === 'undefined') return
   const url = new URL(window.location.href)
-  url.searchParams.set('mode', 'recovery')
+  url.searchParams.set('mode', mode)
   url.searchParams.delete('type')
   url.searchParams.delete('token_hash')
   window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`)
@@ -148,6 +156,7 @@ const emptyState = {
   searchedJobsCount: 0,
   lastLiveSearchAt: null,
   liveJobSources: [],
+  impersonation: null,
 }
 
 const cachedWorkspace = readWorkspaceCache()
@@ -170,21 +179,42 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
       return
     }
 
-    const recoveryTokenHash = getRecoveryTokenHash()
-    if (recoveryTokenHash) {
+    // Handle password-reset (recovery) and signup-confirmation links from email.
+    // Guard against React StrictMode double-invoking this in dev, which would
+    // verify (and consume) the single-use token twice — the second call fails.
+    const actionToken = getAuthActionToken()
+    if (actionToken && !recoveryHandled) {
+      recoveryHandled = true
       const { error: verifyError } = await supabase.auth.verifyOtp({
-        type: 'recovery',
-        token_hash: recoveryTokenHash,
+        type: actionToken.type,
+        token_hash: actionToken.tokenHash,
       })
-      clearRecoveryTokenFromUrl()
-      if (verifyError) {
-        set({
-          authStatus: 'error',
-          authMessage: 'This reset link is invalid or expired. Please request a new password reset email.',
-          workspaceStatus: 'idle',
-          recoveryMode: false,
-        })
-        return
+
+      if (actionToken.type === 'recovery') {
+        clearAuthTokenFromUrl('recovery')
+        if (verifyError) {
+          set({
+            authStatus: 'error',
+            authMessage: 'This reset link is invalid or expired. Please request a new password reset email.',
+            workspaceStatus: 'idle',
+            recoveryMode: false,
+          })
+          return
+        }
+        // Recovery session established — force the set-new-password screen.
+        set({ authStatus: 'unauthenticated', workspaceStatus: 'idle', authMessage: '', recoveryMode: true })
+      } else {
+        // Signup confirmation.
+        clearAuthTokenFromUrl('signin')
+        if (verifyError) {
+          set({
+            authStatus: 'unauthenticated',
+            authMessage: 'This confirmation link is invalid or expired. Please sign in, or create your account again.',
+            workspaceStatus: 'idle',
+          })
+          return
+        }
+        // Email confirmed — a session now exists; fall through to load the workspace.
       }
     }
 
@@ -260,11 +290,18 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
       body: JSON.stringify({ email, password, name }),
     })
 
-    const payload = (await response.json()) as { error?: { message: string } }
+    const payload = (await response.json()) as { error?: { message: string }; confirmationRequired?: boolean }
     if (!response.ok) {
       const message = payload.error?.message || 'Signup failed.'
       set({ authStatus: 'error', authMessage: message })
       throw new Error(message)
+    }
+
+    // When the server emailed a confirmation link, do NOT sign in — the account
+    // is inactive until the user clicks the link.
+    if (payload.confirmationRequired) {
+      set({ authStatus: 'unauthenticated', authMessage: '' })
+      return { confirmationRequired: true }
     }
 
     const { data, error } = await client.auth.signInWithPassword({ email, password })
@@ -273,6 +310,7 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
       throw error
     }
     if (data.user) await loadWorkspaceForUser(data.user.id, data.user.email || email)
+    return { confirmationRequired: false }
   },
   signIn: async (email, password) => {
     const client = requireSupabase()
@@ -317,6 +355,18 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
     if (error) throw error
   },
   clearRecoveryMode: () => set({ recoveryMode: false }),
+  viewAsUser: async (userId) => {
+    const snapshot = await getUserWorkspace(userId)
+    set({
+      impersonation: {
+        userId,
+        email: snapshot.profile.email,
+        name: snapshot.profile.name,
+        snapshot,
+      },
+    })
+  },
+  exitImpersonation: () => set({ impersonation: null }),
   setSelectedJob: (jobId) => set({ selectedJobId: jobId }),
   setFilters: (filters) => set((state) => ({ filters: { ...state.filters, ...filters } })),
   resetFilters: () => set({ filters: defaultFilters }),

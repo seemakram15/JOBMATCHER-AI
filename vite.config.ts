@@ -67,6 +67,14 @@ export default defineConfig(({ mode }) => {
               sendApiMiddlewareError(res, error)
             }
           })
+          server.middlewares.use('/api/admin', async (req, res) => {
+            try {
+              const { default: adminHandler } = await import('./api/admin')
+              await adminHandler(req, res)
+            } catch (error) {
+              sendApiMiddlewareError(res, error)
+            }
+          })
         },
       },
     ],

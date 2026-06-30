@@ -4,20 +4,26 @@ import {
   Activity,
   ArrowRight,
   BadgeCheck,
+  Banknote,
   Bell,
+  BellRing,
+  Briefcase,
   BriefcaseBusiness,
   CalendarDays,
   Check,
   CheckCircle2,
   ChevronRight,
   ClipboardList,
+  Compass,
   Cpu,
+  Crown,
   DatabaseZap,
   Eye,
   EyeOff,
   FileText,
   Gauge,
   Globe2,
+  Inbox,
   KeyRound,
   Layers,
   LayoutDashboard,
@@ -31,10 +37,7 @@ import {
   Moon,
   MousePointerClick,
   Network,
-  Pencil,
   Plus,
-  Quote,
-  Radio,
   RefreshCw,
   Rocket,
   Save,
@@ -42,6 +45,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   Star,
   Sun,
@@ -49,6 +53,7 @@ import {
   Trash2,
   TrendingUp,
   UploadCloud,
+  Wand2,
   X,
   UserPlus,
   UserRound,
@@ -80,35 +85,106 @@ import { CountUp } from './components/landing/CountUp'
 import { MatchScoreRing } from './components/landing/MatchScoreRing'
 import { MagneticButton } from './components/landing/MagneticButton'
 import { LandingFooter } from './components/landing/LandingFooter'
+import { TagInput } from './components/ui/TagInput'
+import { SkillsBoard } from './components/SkillsBoard'
+import { AdminConsole } from './components/admin/AdminConsole'
+import { ImpersonationBanner } from './components/admin/ImpersonationBanner'
 import {
   getProfileCompletion,
   isProfileComplete,
-  joinPreferenceText,
   normaliseRemotePreference,
   profileSearchLocation,
   profileSearchSkills,
-  splitPreferenceText,
   usefulPreferenceTerms,
 } from './lib/profilePreferences'
 import { filterAndSortJobs, scoreJobs } from './lib/scoring'
 import { defaultFilters } from './lib/defaults'
+import { recordSearch } from './lib/workspacePersistence'
 import { useJobmatchStore } from './store/useJobmatchStore'
-import type { Application, CvProfile, CvSkill, Job, LiveJobSourceResult, ParsedCvPayload, RemotePreference, ScoredJob, UserProfile } from './types'
+import type { Application, CvProfile, CvSkill, Job, JobFilters, LiveJobSourceResult, ParsedCvPayload, RemotePreference, ScoredJob, UserProfile, UserRole } from './types'
 
-const navItems = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/profile', label: 'Profile', icon: UserRound },
-  { to: '/jobs', label: 'Discovery', icon: Search },
-  { to: '/cv', label: 'CV Hub', icon: FileText },
-  { to: '/tracker', label: 'Tracker', icon: ClipboardList },
-  { to: '/alerts', label: 'Alerts', icon: Bell },
-  { to: '/admin', label: 'Admin', icon: ShieldCheck },
-  { to: '/settings', label: 'Settings', icon: Settings },
+type Accent = 'primary' | 'cyan' | 'success' | 'warning' | 'violet' | 'pink' | 'danger' | 'muted'
+
+interface NavItem {
+  to: string
+  label: string
+  icon: typeof LayoutDashboard
+  accent: Accent
+  adminOnly: boolean
+}
+
+const navItems: NavItem[] = [
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, accent: 'primary', adminOnly: false },
+  { to: '/jobs', label: 'Find Jobs', icon: Compass, accent: 'cyan', adminOnly: false },
+  { to: '/cv', label: 'My CV', icon: FileText, accent: 'success', adminOnly: false },
+  { to: '/tracker', label: 'Applications', icon: ClipboardList, accent: 'warning', adminOnly: false },
+  { to: '/profile', label: 'Preferences', icon: SlidersHorizontal, accent: 'violet', adminOnly: false },
+  { to: '/alerts', label: 'Alerts', icon: BellRing, accent: 'pink', adminOnly: false },
+  { to: '/admin', label: 'Admin', icon: ShieldCheck, accent: 'danger', adminOnly: true },
+  { to: '/settings', label: 'Settings', icon: Settings, accent: 'muted', adminOnly: false },
 ]
+
+// Static class maps (so Tailwind keeps them) for per-section accent coloring.
+const ACCENT_SOFT: Record<Accent, string> = {
+  primary: 'bg-primary/15 text-primary',
+  cyan: 'bg-cyan/15 text-cyan',
+  success: 'bg-success/15 text-success',
+  warning: 'bg-warning/15 text-warning',
+  violet: 'bg-violet/15 text-violet',
+  pink: 'bg-pink/15 text-pink',
+  danger: 'bg-danger/15 text-danger',
+  muted: 'bg-muted/15 text-muted',
+}
+
+const ACCENT_ACTIVE: Record<Accent, string> = {
+  primary: 'bg-primary/15 text-primary',
+  cyan: 'bg-cyan/15 text-cyan',
+  success: 'bg-success/15 text-success',
+  warning: 'bg-warning/15 text-warning',
+  violet: 'bg-violet/15 text-violet',
+  pink: 'bg-pink/15 text-pink',
+  danger: 'bg-danger/15 text-danger',
+  muted: 'bg-muted/20 text-ink',
+}
+
+function isAdminRole(role: UserRole | string | undefined) {
+  return role === 'admin' || role === 'superadmin'
+}
 
 const brandTagline = 'Upload. Match. Apply smarter.'
 
 type ThemeMode = 'dark' | 'light'
+
+/**
+ * Returns the workspace data to display. When an admin is impersonating a user,
+ * this returns that user's read-only snapshot; otherwise the signed-in user's
+ * own live data. Page CONTENT reads from here; nav/role gating uses the real profile.
+ */
+function useWorkspaceView() {
+  const impersonation = useJobmatchStore((state) => state.impersonation)
+  const profile = useJobmatchStore((state) => state.profile)
+  const cvs = useJobmatchStore((state) => state.cvs)
+  const activeCv = useJobmatchStore((state) => state.activeCv)
+  const jobs = useJobmatchStore((state) => state.jobs)
+  const applications = useJobmatchStore((state) => state.applications)
+  const notifications = useJobmatchStore((state) => state.notifications)
+
+  if (impersonation) {
+    const snap = impersonation.snapshot
+    return {
+      profile: snap.profile,
+      cvs: snap.cvs,
+      activeCv: snap.activeCv,
+      jobs: snap.jobs,
+      applications: snap.applications,
+      notifications: snap.notifications,
+      isImpersonating: true,
+      readOnly: true,
+    }
+  }
+
+  return { profile, cvs, activeCv, jobs, applications, notifications, isImpersonating: false, readOnly: false }
+}
 
 const countryCityOptions = [
   { country: 'Remote', cities: ['Remote'] },
@@ -161,7 +237,10 @@ function App() {
     return <AuthPage />
   }
 
-  if (authStatus === 'loading' && !hasWorkspaceSnapshot) {
+  // The auth screen stays mounted during its own loading (sign in / sign up),
+  // so form state and confirmation messages survive — only show the boot frame
+  // for the authenticated workspace loading.
+  if (authStatus === 'loading' && !hasWorkspaceSnapshot && location.pathname !== '/auth') {
     return <WorkspaceBootFrame />
   }
 
@@ -169,7 +248,14 @@ function App() {
     return <AuthPage />
   }
 
-  if (authStatus === 'authenticated' && workspaceStatus !== 'loading' && !isProfileComplete(profile) && location.pathname !== '/profile') {
+  // Job seekers must finish their preferences first; admins/superadmins skip this.
+  if (
+    authStatus === 'authenticated' &&
+    workspaceStatus !== 'loading' &&
+    !isAdminRole(profile.role) &&
+    !isProfileComplete(profile) &&
+    location.pathname !== '/profile'
+  ) {
     return <Navigate to="/profile" replace state={{ from: location.pathname }} />
   }
 
@@ -182,7 +268,7 @@ function App() {
         <Route path="/cv" element={<CvHubPage />} />
         <Route path="/tracker" element={<TrackerPage />} />
         <Route path="/alerts" element={<AlertsPage />} />
-        <Route path="/admin" element={<AdminPage />} />
+        <Route path="/admin" element={isAdminRole(profile.role) ? <AdminPage /> : <Navigate to="/dashboard" replace />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
@@ -387,15 +473,6 @@ const LANDING_STATS = [
   { value: 8, suffix: '', label: 'Connected workspace modules' },
   { value: 4, suffix: '', label: 'CV formats parsed locally' },
   { value: 100, suffix: '%', label: 'Scoped to your own account' },
-]
-
-const TESTIMONIALS = [
-  { quote: 'Uploaded my CV and instantly saw roles ranked by real fit. No more endless scrolling.', name: 'Ayesha K.', role: 'Frontend Engineer' },
-  { quote: 'The kanban tracker finally replaced my messy spreadsheet. Drag, drop, export — done.', name: 'Daniel R.', role: 'Product Designer' },
-  { quote: 'Match scores are honest. I stopped wasting time on roles that were never going to fit.', name: 'Sofia M.', role: 'Data Analyst' },
-  { quote: 'Local CV parsing means my data never leaves my account. That sold me immediately.', name: 'Marcus T.', role: 'Backend Engineer' },
-  { quote: 'Live sources in one feed saved me from juggling five job boards every morning.', name: 'Priya N.', role: 'DevOps Engineer' },
-  { quote: 'Alerts surface fresh, high-fit roles before they get buried. Genuinely useful.', name: 'Liam O.', role: 'Mobile Developer' },
 ]
 
 const SECURITY_PILLARS = [
@@ -851,33 +928,6 @@ function LandingPage() {
         </div>
       </section>
 
-      {/* ===== Testimonials marquee ===== */}
-      <section className="overflow-hidden py-16">
-        <Reveal className="mx-auto mb-10 max-w-2xl px-5 text-center md:px-8">
-          <h2 className="text-4xl font-extrabold tracking-tight md:text-5xl">Loved by focused job seekers</h2>
-          <p className="mt-4 text-lg text-muted">Real workflows, fewer tabs, calmer applications.</p>
-        </Reveal>
-        <Marquee speed={50} reverse>
-          {TESTIMONIALS.map((item) => (
-            <figure
-              key={item.name}
-              className="mx-3 flex w-[340px] shrink-0 flex-col justify-between rounded-2xl border border-line bg-panel/60 p-6"
-            >
-              <Quote size={22} className="text-primary/50" />
-              <blockquote className="mt-3 text-sm leading-6 text-ink/90">“{item.quote}”</blockquote>
-              <figcaption className="mt-5 flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary">
-                  {item.name.split(' ').map((part) => part[0]).join('')}
-                </span>
-                <div>
-                  <p className="text-sm font-semibold text-ink">{item.name}</p>
-                  <p className="text-xs text-muted">{item.role}</p>
-                </div>
-              </figcaption>
-            </figure>
-          ))}
-        </Marquee>
-      </section>
 
       {/* ===== Security ===== */}
       <section id="security" className="scroll-mt-24 mx-auto max-w-7xl px-5 py-12 md:px-8">
@@ -1047,8 +1097,13 @@ function AuthPage() {
 
     try {
       if (mode === 'signup') {
-        await signUp(email.trim(), password, name.trim())
-        setFormMessage('Account created. Signing you in now.')
+        const result = await signUp(email.trim(), password, name.trim())
+        if (result.confirmationRequired) {
+          setMode('signin')
+          setFormMessage(`Account created! We emailed a confirmation link to ${email.trim()}. Click it to activate your account, then sign in.`)
+        } else {
+          setFormMessage('Account created. Signing you in now.')
+        }
       } else {
         await signIn(email.trim(), password)
       }
@@ -1589,6 +1644,24 @@ function AuthPage() {
   )
 }
 
+function RoleBadge({ role }: { role: UserRole }) {
+  if (role === 'superadmin') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-violet/40 bg-violet/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet">
+        <Crown size={10} /> Superadmin
+      </span>
+    )
+  }
+  if (role === 'admin') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">
+        <ShieldCheck size={10} /> Admin
+      </span>
+    )
+  }
+  return <span className="text-xs text-muted">Member</span>
+}
+
 function AppShell({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const profile = useJobmatchStore((state) => state.profile)
@@ -1596,7 +1669,10 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const signOut = useJobmatchStore((state) => state.signOut)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const unread = notifications.filter((notification) => !notification.isRead).length
-  const pageLabel = navItems.find((item) => item.to === location.pathname)?.label ?? 'Dashboard'
+  const current = navItems.find((item) => item.to === location.pathname)
+  const pageLabel = current?.label ?? 'Dashboard'
+  const accent = current?.accent ?? 'primary'
+  const PageIcon = current?.icon ?? LayoutDashboard
 
   useEffect(() => {
     setMobileNavOpen(false)
@@ -1610,23 +1686,27 @@ function AppShell({ children }: { children: React.ReactNode }) {
       >
         Skip to main content
       </a>
-      <div className="grid min-h-screen lg:grid-cols-[260px_1fr]">
-        <aside className="hidden border-r border-line bg-panel/88 p-4 backdrop-blur lg:block">
+      <div className="grid min-h-screen lg:grid-cols-[264px_1fr]">
+        <aside className="hidden border-r border-line bg-panel/70 p-4 lg:block">
           <WorkspaceNav />
         </aside>
 
         <div className="min-w-0">
-          <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-line bg-bg/90 px-4 backdrop-blur md:px-6">
+          <ImpersonationBanner />
+          <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-line bg-bg/85 px-4 backdrop-blur md:px-6">
             <div className="flex items-center gap-3">
               <button className="icon-button lg:hidden" aria-label="Open navigation" title="Navigation" onClick={() => setMobileNavOpen(true)}>
                 <Menu size={18} />
               </button>
+              <span className={`hidden h-9 w-9 items-center justify-center rounded-xl sm:flex ${ACCENT_SOFT[accent]}`}>
+                <PageIcon size={18} />
+              </span>
               <div>
                 <p className="text-xs font-medium text-muted">{brandTagline}</p>
                 <h1 className="text-lg font-semibold text-ink">{pageLabel}</h1>
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <ThemeToggle />
               <NavLink className="icon-button relative" to="/alerts" aria-label={`${unread} unread alerts`} title="Alerts">
                 <Bell size={17} />
@@ -1636,13 +1716,13 @@ function AppShell({ children }: { children: React.ReactNode }) {
                   </span>
                 ) : null}
               </NavLink>
-              <div className="hidden items-center gap-3 rounded-md border border-line bg-panel px-3 py-2 sm:flex">
-                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-success/15 text-success">
+              <div className="hidden items-center gap-3 rounded-xl border border-line bg-panel px-3 py-1.5 sm:flex">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary">
                   <UserRound size={16} />
-                </div>
-                <div>
+                </span>
+                <div className="leading-tight">
                   <p className="text-sm font-medium text-ink">{profile.name}</p>
-                  <p className="text-xs text-muted">{profile.role}</p>
+                  <RoleBadge role={profile.role} />
                 </div>
               </div>
               <button className="icon-button" onClick={() => void signOut()} aria-label="Sign out" title="Sign out">
@@ -1653,7 +1733,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
           {mobileNavOpen ? (
             <div className="fixed inset-0 z-40 bg-black/55 p-3 backdrop-blur-sm lg:hidden" onClick={() => setMobileNavOpen(false)}>
               <aside
-                className="h-full w-full max-w-[300px] rounded-md border border-line bg-panel p-4 shadow-soft"
+                className="h-full w-full max-w-[300px] rounded-2xl border border-line bg-panel p-4 shadow-soft"
                 onClick={(event) => event.stopPropagation()}
               >
                 <WorkspaceNav />
@@ -1663,9 +1743,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
           <main id="main-content" className="p-4 md:p-6">
             <motion.div
               key={location.pathname}
-              initial={{ opacity: 0, y: 12 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.25 }}
+              transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
             >
               {children}
             </motion.div>
@@ -1677,25 +1757,28 @@ function AppShell({ children }: { children: React.ReactNode }) {
 }
 
 function WorkspaceNav() {
+  const role = useJobmatchStore((state) => state.profile.role)
+  const items = navItems.filter((item) => !item.adminOnly || isAdminRole(role))
+
   return (
     <div className="flex h-full flex-col">
       <div className="mb-7">
         <BrandLogo />
       </div>
       <nav className="space-y-1">
-        {navItems.map((item) => {
+        {items.map((item) => {
           const Icon = item.icon
           return (
             <NavLink
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
-                `group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition ${
-                  isActive ? 'bg-primary/15 text-primary shadow-sm' : 'text-muted hover:bg-bg/75 hover:text-ink'
+                `group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                  isActive ? `${ACCENT_ACTIVE[item.accent]} shadow-sm` : 'text-muted hover:bg-bg/70 hover:text-ink'
                 }`
               }
             >
-              <span className="flex h-8 w-8 items-center justify-center rounded-md border border-line bg-bg/70 transition group-hover:border-primary/50">
+              <span className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${ACCENT_SOFT[item.accent]}`}>
                 <Icon size={16} />
               </span>
               {item.label}
@@ -1704,13 +1787,13 @@ function WorkspaceNav() {
         })}
       </nav>
 
-      <div className="mt-auto rounded-md border border-line bg-bg/65 p-4">
+      <div className="mt-auto rounded-2xl border border-line bg-bg/60 p-4">
         <div className="flex items-center gap-2 text-sm font-semibold text-ink">
-          <DatabaseZap size={16} className="text-primary" />
-          Source health
+          <Sparkles size={16} className="text-violet" />
+          Quick tip
         </div>
         <p className="mt-2 text-xs leading-5 text-muted">
-          Live extraction uses your CV skills, role, and private server keys to keep matching focused.
+          Upload a CV and set your preferences to unlock sharper, score-first job matches.
         </p>
       </div>
     </div>
@@ -1780,6 +1863,7 @@ function useLiveJobSearch() {
       }
 
       setLiveJobs(payload.jobs, payload.sources || [])
+      void recordSearch(query, payload.jobs.length).catch(() => undefined)
       setStatus('done')
       setMessage(`Fetched ${payload.jobs.length} relevant jobs matched to your skills and experience.`)
       if (goToJobs) navigate('/jobs')
@@ -1805,9 +1889,9 @@ function ProfilePage() {
   const profile = useJobmatchStore((state) => state.profile)
   const updateProfile = useJobmatchStore((state) => state.updateProfile)
   const from = (location.state as { from?: string } | null)?.from
-  const [targetRoles, setTargetRoles] = useState(joinPreferenceText(profile.targetRoles))
-  const [mustHaveSkills, setMustHaveSkills] = useState(joinPreferenceText(profile.mustHaveSkills))
-  const [avoidKeywords, setAvoidKeywords] = useState(joinPreferenceText(profile.avoidKeywords))
+  const [targetRoles, setTargetRoles] = useState<string[]>(profile.targetRoles ?? [])
+  const [mustHaveSkills, setMustHaveSkills] = useState<string[]>(profile.mustHaveSkills ?? [])
+  const [avoidKeywords, setAvoidKeywords] = useState<string[]>(profile.avoidKeywords ?? [])
   const [preferredCountries, setPreferredCountries] = useState(profile.preferredCountries.length ? profile.preferredCountries : ['Remote'])
   const [preferredCities, setPreferredCities] = useState(profile.preferredCities.length ? profile.preferredCities : ['Remote'])
   const [selectedCountry, setSelectedCountry] = useState(preferredCountries[0] || 'Remote')
@@ -1815,24 +1899,24 @@ function ProfilePage() {
   const [remotePreference, setRemotePreference] = useState<RemotePreference>(normaliseRemotePreference(profile.remotePreference))
   const [minimumSalary, setMinimumSalary] = useState(profile.minimumSalary || profile.salaryMin || 0)
   const [experienceYears, setExperienceYears] = useState(profile.experienceYears || 0)
-  const [goodJobExamples, setGoodJobExamples] = useState(joinPreferenceText(profile.goodJobExamples))
-  const [badJobExamples, setBadJobExamples] = useState(joinPreferenceText(profile.badJobExamples))
+  const [goodJobExamples, setGoodJobExamples] = useState<string[]>(profile.goodJobExamples ?? [])
+  const [badJobExamples, setBadJobExamples] = useState<string[]>(profile.badJobExamples ?? [])
   const [isMarkedComplete, setIsMarkedComplete] = useState(Boolean(profile.profileCompletedAt))
   const [message, setMessage] = useState('')
   const selectedCities = getCitiesForCountry(selectedCountry)
   const completion = getProfileCompletion(profile)
 
   useEffect(() => {
-    setTargetRoles(joinPreferenceText(profile.targetRoles))
-    setMustHaveSkills(joinPreferenceText(profile.mustHaveSkills))
-    setAvoidKeywords(joinPreferenceText(profile.avoidKeywords))
+    setTargetRoles(profile.targetRoles ?? [])
+    setMustHaveSkills(profile.mustHaveSkills ?? [])
+    setAvoidKeywords(profile.avoidKeywords ?? [])
     setPreferredCountries(profile.preferredCountries.length ? profile.preferredCountries : ['Remote'])
     setPreferredCities(profile.preferredCities.length ? profile.preferredCities : ['Remote'])
     setRemotePreference(normaliseRemotePreference(profile.remotePreference))
     setMinimumSalary(profile.minimumSalary || profile.salaryMin || 0)
     setExperienceYears(profile.experienceYears || 0)
-    setGoodJobExamples(joinPreferenceText(profile.goodJobExamples))
-    setBadJobExamples(joinPreferenceText(profile.badJobExamples))
+    setGoodJobExamples(profile.goodJobExamples ?? [])
+    setBadJobExamples(profile.badJobExamples ?? [])
     setIsMarkedComplete(Boolean(profile.profileCompletedAt))
   }, [profile])
 
@@ -1864,11 +1948,11 @@ function ProfilePage() {
   }
 
   const buildPatch = (completedAt: string | null): Partial<UserProfile> => {
-    const nextTargetRoles = splitPreferenceText(targetRoles, 10)
-    const nextMustHaveSkills = splitPreferenceText(mustHaveSkills, 30)
-    const nextAvoidKeywords = splitPreferenceText(avoidKeywords, 30)
-    const nextGoodExamples = splitPreferenceText(goodJobExamples, 12)
-    const nextBadExamples = splitPreferenceText(badJobExamples, 12)
+    const nextTargetRoles = targetRoles.slice(0, 10)
+    const nextMustHaveSkills = mustHaveSkills.slice(0, 30)
+    const nextAvoidKeywords = avoidKeywords.slice(0, 30)
+    const nextGoodExamples = goodJobExamples.slice(0, 12)
+    const nextBadExamples = badJobExamples.slice(0, 12)
     const salary = Math.max(0, Math.round(Number(minimumSalary) || 0))
     const years = clampExperienceYears(experienceYears)
     const pairs = preferredLocationPairs(preferredCountries, preferredCities)
@@ -1911,36 +1995,34 @@ function ProfilePage() {
     }
   }
 
+  const locationPairs = preferredLocationPairs(preferredCountries, preferredCities)
+
   return (
     <div className="space-y-6">
-      <section className="panel overflow-hidden">
-        <div className="grid gap-5 bg-gradient-to-br from-primary/18 via-panel to-panel p-5 lg:grid-cols-[1fr_360px] lg:p-6">
+      <section className="panel relative overflow-hidden">
+        <div className="grid gap-5 bg-gradient-to-br from-violet/18 via-panel to-panel p-5 lg:grid-cols-[1fr_360px] lg:p-6">
           <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary">
-              <Target size={16} />
-              Matching profile
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-violet/30 bg-violet/10 px-3 py-1.5 text-sm font-semibold text-violet">
+              <SlidersHorizontal size={16} />
+              Your job preferences
             </div>
-            <h2 className="text-2xl font-bold text-ink md:text-3xl">Profile</h2>
+            <h2 className="text-2xl font-bold text-ink md:text-3xl">Tell us what you want</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-              Fill only what you want. Checked completion unlocks the workspace; empty fields fall back to your uploaded CV.
+              Add a few tags and we'll only surface jobs that fit. Anything you leave empty falls back to your uploaded CV.
             </p>
           </div>
-          <div className="rounded-md border border-line bg-bg/65 p-4">
+          <div className="rounded-2xl border border-line bg-bg/60 p-4">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-ink">{completion.isComplete ? 'Ready for live search' : 'Profile required'}</p>
-              <span className={`rounded-md px-2 py-1 text-xs font-semibold ${completion.isComplete ? 'bg-success/15 text-success' : 'bg-warning/15 text-warning'}`}>
-                {completion.isComplete ? 'Complete' : 'Checkbox needed'}
+              <p className="text-sm font-semibold text-ink">{completion.isComplete ? 'Ready to search' : 'Almost there'}</p>
+              <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${completion.isComplete ? 'bg-success/15 text-success' : 'bg-warning/15 text-warning'}`}>
+                {completion.isComplete ? 'Complete' : 'Action needed'}
               </span>
             </div>
-            {completion.isComplete ? (
-              <p className="mt-3 text-sm leading-6 text-muted">
-                Search uses profile fields when present, then falls back to resume skills.
-              </p>
-            ) : (
-              <p className="mt-3 text-sm leading-6 text-muted">
-                Check the completion box below and save. The fields themselves are optional.
-              </p>
-            )}
+            <p className="mt-3 text-sm leading-6 text-muted">
+              {completion.isComplete
+                ? 'We use your preferences first, then your resume skills to rank jobs.'
+                : 'Tick “I’m done setting preferences” below and save to unlock the full workspace.'}
+            </p>
           </div>
         </div>
       </section>
@@ -1948,53 +2030,38 @@ function ProfilePage() {
       <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="panel p-5">
           <div className="mb-5 flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-md bg-primary/15 text-primary">
-              <BriefcaseBusiness size={21} />
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet/15 text-violet">
+              <Briefcase size={21} />
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-ink">Role and skill target</h2>
-              <p className="text-sm text-muted">These fields decide what live jobs are allowed into your feed.</p>
+              <h2 className="text-xl font-semibold text-ink">What you're looking for</h2>
+              <p className="text-sm text-muted">Type a tag and press Enter. These decide which jobs reach your feed.</p>
             </div>
           </div>
-          <div className="grid gap-4">
-            <label className="field-label">
-              Target roles
-              <textarea
-                className="control mt-2 min-h-[84px] w-full rounded-md p-3 text-sm normal-case"
-                value={targetRoles}
-                onChange={(event) => setTargetRoles(event.target.value)}
-                placeholder="Frontend Engineer, React Developer, Full Stack Engineer"
-              />
-            </label>
-            <label className="field-label">
-              Must-have skills
-              <textarea
-                className="control mt-2 min-h-[96px] w-full rounded-md p-3 text-sm normal-case"
-                value={mustHaveSkills}
-                onChange={(event) => setMustHaveSkills(event.target.value)}
-                placeholder="React, TypeScript, Node.js, REST APIs"
-              />
-            </label>
-            <label className="field-label">
-              Avoid roles or keywords
-              <textarea
-                className="control mt-2 min-h-[84px] w-full rounded-md p-3 text-sm normal-case"
-                value={avoidKeywords}
-                onChange={(event) => setAvoidKeywords(event.target.value)}
-                placeholder="Data entry, virtual assistant, sales, recruiter"
-              />
-            </label>
+          <div className="grid gap-5">
+            <div>
+              <p className="field-label">Job titles you want</p>
+              <TagInput value={targetRoles} onChange={setTargetRoles} accent="primary" max={10} icon={<Target size={15} />} placeholder="Frontend Engineer, React Developer…" ariaLabel="Target roles" />
+            </div>
+            <div>
+              <p className="field-label">Must-have skills</p>
+              <TagInput value={mustHaveSkills} onChange={setMustHaveSkills} accent="success" max={30} icon={<Sparkles size={15} />} placeholder="React, TypeScript, Node.js…" ariaLabel="Must-have skills" />
+            </div>
+            <div>
+              <p className="field-label">Avoid these roles / keywords</p>
+              <TagInput value={avoidKeywords} onChange={setAvoidKeywords} accent="danger" max={30} icon={<X size={15} />} placeholder="Data entry, sales, recruiter…" ariaLabel="Avoid keywords" />
+            </div>
           </div>
         </div>
 
         <div className="panel p-5">
           <div className="mb-5 flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-md bg-success/15 text-success">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan/15 text-cyan">
               <MapPin size={21} />
             </div>
             <div>
-              <h2 className="text-xl font-semibold text-ink">Location and package</h2>
-              <p className="text-sm text-muted">Location and salary filters are applied before match scoring.</p>
+              <h2 className="text-xl font-semibold text-ink">Location &amp; salary</h2>
+              <p className="text-sm text-muted">Where you'd work and your minimum pay.</p>
             </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -2024,115 +2091,135 @@ function ProfilePage() {
               <Plus size={16} />
               Add location
             </button>
-            <div className="sm:col-span-2">
-              <div className="flex flex-wrap gap-2">
-                {preferredLocationPairs(preferredCountries, preferredCities).map((place, index) => (
-                  <span key={`${place.country}-${place.city}-${index}`} className="inline-flex items-center gap-2 rounded-md border border-line bg-bg/70 px-3 py-2 text-sm text-ink">
-                    {formatLocationPair(place)}
-                    <button
-                      type="button"
-                      className="text-muted transition hover:text-danger"
-                      onClick={() => removePreferredLocation(index)}
-                      aria-label={`Remove ${formatLocationPair(place)}`}
-                    >
-                      <X size={14} />
-                    </button>
-                  </span>
+            {locationPairs.length ? (
+              <div className="sm:col-span-2">
+                <div className="flex flex-wrap gap-2">
+                  {locationPairs.map((place, index) => (
+                    <span key={`${place.country}-${place.city}-${index}`} className="inline-flex items-center gap-2 rounded-lg border border-cyan/30 bg-cyan/10 px-3 py-1.5 text-sm font-medium text-cyan">
+                      <MapPin size={13} />
+                      {formatLocationPair(place)}
+                      <button
+                        type="button"
+                        className="opacity-70 transition hover:opacity-100"
+                        onClick={() => removePreferredLocation(index)}
+                        aria-label={`Remove ${formatLocationPair(place)}`}
+                      >
+                        <X size={14} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="field-label sm:col-span-2">
+              Work style
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {remotePreferenceOptions.map((option) => (
+                  <button
+                    type="button"
+                    key={option.value}
+                    onClick={() => setRemotePreference(option.value)}
+                    className={`rounded-xl border px-3 py-2 text-sm font-semibold capitalize transition ${
+                      remotePreference === option.value
+                        ? 'border-cyan bg-cyan/15 text-cyan'
+                        : 'border-line bg-bg/60 text-muted hover:border-cyan/40 hover:text-ink'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
                 ))}
               </div>
             </div>
-            <label className="field-label">
-              Remote preference
-              <PrettySelect<RemotePreference>
-                className="mt-2 normal-case"
-                value={remotePreference}
-                options={remotePreferenceOptions}
-                onChange={setRemotePreference}
-                ariaLabel="Remote preference"
-                icon={<Radio size={16} />}
+
+            <div className="field-label sm:col-span-2">
+              Minimum salary (USD / year)
+              <div className="mt-2 flex items-center gap-3">
+                <span className="field-shell normal-case flex-1">
+                  <Banknote size={16} className="text-success" />
+                  <input
+                    type="number"
+                    min={0}
+                    step={1000}
+                    value={minimumSalary}
+                    onChange={(event) => setMinimumSalary(Math.max(0, Number(event.target.value) || 0))}
+                    placeholder="60000"
+                  />
+                </span>
+                <span className="w-24 shrink-0 text-right font-mono text-sm font-semibold text-ink">
+                  {minimumSalary ? formatCurrency(minimumSalary) : 'Any'}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={300000}
+                step={5000}
+                value={Math.min(minimumSalary, 300000)}
+                onChange={(event) => setMinimumSalary(Number(event.target.value))}
+                className="skill-range mt-3 w-full"
+                style={{ ['--rank' as string]: `${Math.min(minimumSalary, 300000) / 3000}%` }}
+                aria-label="Minimum salary"
               />
-            </label>
-            <label className="field-label">
-              Minimum salary
-              <span className="field-shell normal-case">
-                <span className="text-sm font-bold text-muted">$</span>
+            </div>
+
+            <div className="field-label sm:col-span-2">
+              Years of experience
+              <div className="mt-2 flex items-center gap-3">
                 <input
-                  type="number"
+                  type="range"
                   min={0}
-                  step={1000}
-                  value={minimumSalary}
-                  onChange={(event) => setMinimumSalary(Math.max(0, Number(event.target.value) || 0))}
-                  placeholder="60000"
-                />
-              </span>
-            </label>
-            <label className="field-label sm:col-span-2">
-              Experience years
-              <span className="field-shell normal-case">
-                <Gauge size={16} className="text-muted" />
-                <input
-                  type="number"
-                  min={0}
-                  max={60}
+                  max={40}
                   step={1}
-                  value={experienceYears}
+                  value={Math.min(Number(experienceYears) || 0, 40)}
                   onChange={(event) => setExperienceYears(clampExperienceYears(event.target.value))}
-                  placeholder="5"
+                  className="skill-range flex-1"
+                  style={{ ['--rank' as string]: `${(Math.min(Number(experienceYears) || 0, 40) / 40) * 100}%` }}
+                  aria-label="Years of experience"
                 />
-              </span>
-            </label>
+                <span className="w-16 shrink-0 text-right font-mono text-sm font-semibold text-ink">{experienceYears} yrs</span>
+              </div>
+            </div>
           </div>
         </div>
       </section>
 
       <section className="panel p-5">
         <div className="mb-5 flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-md bg-warning/15 text-warning">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-warning/15 text-warning">
             <CheckCircle2 size={21} />
           </div>
           <div>
-            <h2 className="text-xl font-semibold text-ink">Examples</h2>
-            <p className="text-sm text-muted">Good and bad examples sharpen the final relevance filter.</p>
+            <h2 className="text-xl font-semibold text-ink">Example jobs <span className="text-sm font-normal text-muted">(optional)</span></h2>
+            <p className="text-sm text-muted">A few real examples help us fine-tune what counts as a good match.</p>
           </div>
         </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <label className="field-label">
-            Good job examples
-            <textarea
-              className="control mt-2 min-h-[110px] w-full rounded-md p-3 text-sm normal-case"
-              value={goodJobExamples}
-              onChange={(event) => setGoodJobExamples(event.target.value)}
-              placeholder="Senior React Engineer at SaaS company, Frontend Platform Engineer"
-            />
-          </label>
-          <label className="field-label">
-            Bad job examples
-            <textarea
-              className="control mt-2 min-h-[110px] w-full rounded-md p-3 text-sm normal-case"
-              value={badJobExamples}
-              onChange={(event) => setBadJobExamples(event.target.value)}
-              placeholder="Data Entry Assistant, Sales Representative, Recruiter"
-            />
-          </label>
+        <div className="grid gap-5 lg:grid-cols-2">
+          <div>
+            <p className="field-label flex items-center gap-1.5"><Check size={13} className="text-success" /> Jobs you'd love</p>
+            <TagInput value={goodJobExamples} onChange={setGoodJobExamples} accent="success" max={12} placeholder="Senior React Engineer at a SaaS company…" ariaLabel="Good job examples" />
+          </div>
+          <div>
+            <p className="field-label flex items-center gap-1.5"><X size={13} className="text-danger" /> Jobs to skip</p>
+            <TagInput value={badJobExamples} onChange={setBadJobExamples} accent="danger" max={12} placeholder="Data Entry Assistant, Cold-call Sales…" ariaLabel="Bad job examples" />
+          </div>
         </div>
-        <div className="mt-5 flex flex-wrap items-center gap-3">
-          <label className="flex min-h-11 items-center gap-3 rounded-md border border-line bg-bg/70 px-3 text-sm font-semibold text-ink transition hover:border-primary/60">
+        <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-line pt-5">
+          <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-line bg-bg/60 px-4 text-sm font-semibold text-ink transition hover:border-violet/60">
             <input
               type="checkbox"
-              className="h-4 w-4 accent-primary"
+              className="h-4 w-4 accent-violet"
               checked={isMarkedComplete}
               onChange={(event) => setIsMarkedComplete(event.target.checked)}
             />
-            Profile is completed
+            I'm done setting preferences
           </label>
-          <button type="button" className="primary-button h-11" onClick={saveProfile}>
+          <button type="button" className="primary-button h-11 rounded-xl" onClick={saveProfile}>
             <Save size={16} />
-            Save profile
+            Save preferences
           </button>
           {message ? (
-            <p className={`text-sm ${isMarkedComplete ? 'text-success' : 'text-warning'}`}>
-              {message}
-            </p>
+            <p className={`text-sm ${isMarkedComplete ? 'text-success' : 'text-warning'}`}>{message}</p>
           ) : null}
         </div>
       </section>
@@ -2314,134 +2401,216 @@ function AccountSecurityCard() {
   )
 }
 
+const CHART = {
+  grid: 'rgba(148,163,184,0.16)',
+  axis: '#8E96AA',
+  indigo: '#6366F1',
+  emerald: '#10B981',
+  tooltipBg: '#141A2A',
+  tooltipBorder: '#2A3147',
+}
+
 function DashboardPage() {
-  const scoredJobs = useScoredJobs()
-  const applications = useJobmatchStore((state) => state.applications)
-  const activeCv = useJobmatchStore((state) => state.activeCv)
-  const profile = useJobmatchStore((state) => state.profile)
+  const view = useWorkspaceView()
+  const { profile, activeCv, applications, jobs } = view
   const searchedJobsCount = useJobmatchStore((state) => state.searchedJobsCount)
   const lastLiveSearchAt = useJobmatchStore((state) => state.lastLiveSearchAt)
-  const savedCount = applications.filter((application) => application.status === 'saved').length
-  const interviews = applications.filter((application) => application.status === 'interviewing').length
+
+  const savedJobIds = useMemo(
+    () => applications.filter((application) => application.status === 'saved').map((application) => application.jobId),
+    [applications],
+  )
+  const scoredJobs = useMemo(
+    () => scoreJobs(profile, activeCv, jobs, savedJobIds),
+    [profile, activeCv, jobs, savedJobIds],
+  )
+
+  const liveMatches = view.isImpersonating ? jobs.length : Math.max(searchedJobsCount, jobs.length)
+  const appliedCount = applications.filter((a) => a.status === 'applied').length
+  const interviews = applications.filter((a) => a.status === 'interviewing').length
+  const savedCount = applications.filter((a) => a.status === 'saved').length
   const averageScore = scoredJobs.length
     ? Math.round(scoredJobs.reduce((total, scoredJob) => total + scoredJob.match.totalScore, 0) / scoredJobs.length)
     : 0
-  const jobsToday = scoredJobs.filter(
-    ({ job }) => Date.now() - new Date(job.postedAt).getTime() <= 24 * 36e5,
-  ).length
+
   const activity = useMemo(
-    () => buildActivity(applications, searchedJobsCount, lastLiveSearchAt),
-    [applications, searchedJobsCount, lastLiveSearchAt],
+    () => buildActivity(applications, view.isImpersonating ? jobs.length : searchedJobsCount, lastLiveSearchAt),
+    [applications, jobs.length, searchedJobsCount, lastLiveSearchAt, view.isImpersonating],
   )
-  const skillDemand = useMemo(() => buildSkillDemand(scoredJobs, activeCv.skills.map((skill) => skill.skillCanonical)), [
-    scoredJobs,
-    activeCv.skills,
-  ])
+  const skillDemand = useMemo(
+    () => buildSkillDemand(scoredJobs, activeCv.skills.map((skill) => skill.skillCanonical)),
+    [scoredJobs, activeCv.skills],
+  )
   const funnel = ['saved', 'applied', 'interviewing', 'offer'].map((status) => ({
     status: status.replace('_', ' '),
     count: applications.filter((application) => application.status === status).length,
   }))
 
+  const kpis = [
+    { label: 'Live matches', value: liveMatches, suffix: '', icon: Compass, accent: 'primary' as Accent },
+    { label: 'Applications sent', value: appliedCount, suffix: '', icon: ClipboardList, accent: 'success' as Accent },
+    { label: 'Interviews', value: interviews, suffix: '', icon: CalendarDays, accent: 'warning' as Accent },
+    { label: 'Average match', value: averageScore, suffix: '%', icon: Gauge, accent: 'violet' as Accent },
+  ]
+
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 md:grid-cols-3">
-        <StatCard icon={<Search size={20} />} label="Searched jobs" value={searchedJobsCount} />
-        <StatCard
-          icon={<ClipboardList size={20} />}
-          label="Applied jobs"
-          value={applications.filter((application) => application.status === 'applied').length}
-        />
-        <StatCard icon={<CalendarDays size={20} />} label="Interviews" value={interviews} />
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {kpis.map((kpi, i) => {
+          const Icon = kpi.icon
+          return (
+            <Reveal key={kpi.label} delay={i * 0.05}>
+              <div className="panel p-5">
+                <div className={`mb-4 flex h-11 w-11 items-center justify-center rounded-xl ${ACCENT_SOFT[kpi.accent]}`}>
+                  <Icon size={20} />
+                </div>
+                <p className="text-3xl font-extrabold tracking-tight text-ink">
+                  <CountUp to={kpi.value} suffix={kpi.suffix} />
+                </p>
+                <p className="mt-1 text-sm text-muted">{kpi.label}</p>
+              </div>
+            </Reveal>
+          )
+        })}
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.45fr_0.95fr]">
-        <div className="panel p-5">
-          <div className="mb-5 flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-ink">Search momentum</h2>
-              <p className="text-sm text-muted">Viewed and applied activity over the last two weeks.</p>
-            </div>
-            <span className="rounded-md border border-success/30 bg-success/10 px-3 py-1 text-sm text-success">
-              {savedCount} saved · {jobsToday} new today · avg {averageScore}/100
-            </span>
-          </div>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={activity}>
-                <CartesianGrid stroke="#2D2D3A" strokeDasharray="3 3" />
-                <XAxis dataKey="date" stroke="#8B93A7" fontSize={12} />
-                <YAxis stroke="#8B93A7" fontSize={12} />
-                <Tooltip contentStyle={{ background: '#1E1E2E', border: '1px solid #2D2D3A' }} />
-                <Line type="monotone" dataKey="jobsViewed" stroke="#4A90D9" strokeWidth={3} dot={false} />
-                <Line type="monotone" dataKey="jobsApplied" stroke="#4CAF70" strokeWidth={3} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        <div className="panel p-5">
-          <h2 className="text-lg font-semibold text-ink">Active CV signal</h2>
-          <div className="mt-4 rounded-md border border-line bg-bg/60 p-4">
-            <p className="text-sm text-muted">{activeCv.label}</p>
-            <p className="mt-1 text-2xl font-bold text-ink">{activeCv.skills.length} skills</p>
-            <p className="mt-1 text-sm text-muted">{activeCv.totalYearsExperience} years parsed experience</p>
-          </div>
-          <div className="mt-4 space-y-2">
-            {activeCv.skills.slice(0, 6).map((skill) => (
-              <div key={skill.skillName} className="flex items-center justify-between rounded-md border border-line bg-bg/50 px-3 py-2">
-                <span className="text-sm text-ink">{skill.skillName}</span>
-                <span className="text-xs capitalize text-muted">{skill.confidence}</span>
+      <section className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
+        <Reveal className="flex">
+          <div className="panel flex w-full flex-col p-5">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-semibold text-ink">Your activity</h2>
+                <p className="text-sm text-muted">Matches found and applications sent over the last 14 days.</p>
               </div>
-            ))}
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-3 py-1 text-xs font-semibold text-success">
+                <TrendingUp size={13} /> {savedCount} saved · avg {averageScore}%
+              </span>
+            </div>
+            <div className="h-72 flex-1">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={activity} margin={{ top: 8, right: 8, bottom: 0, left: -16 }}>
+                  <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="date" stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ background: CHART.tooltipBg, border: `1px solid ${CHART.tooltipBorder}`, borderRadius: 12, color: '#E8EAF2' }}
+                  />
+                  <Line type="monotone" name="Matches" dataKey="jobsViewed" stroke={CHART.indigo} strokeWidth={3} dot={false} />
+                  <Line type="monotone" name="Applied" dataKey="jobsApplied" stroke={CHART.emerald} strokeWidth={3} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-          <p className="mt-4 text-xs leading-5 text-muted">
-            Targeting {(profile.targetRoles?.[0] || profile.targetRole)} roles from {profileSearchLocation(profile)}, with {profile.remotePreference} preference.
-            {lastLiveSearchAt ? ` Last live search: ${formatDistanceToNowStrict(new Date(lastLiveSearchAt), { addSuffix: true })}.` : ''}
-          </p>
-        </div>
+        </Reveal>
+
+        <Reveal delay={0.08} className="flex">
+          <div className="panel flex w-full flex-col p-5">
+            <div className="flex items-center gap-2">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-success/15 text-success">
+                <FileText size={17} />
+              </span>
+              <h2 className="text-lg font-semibold text-ink">Your active CV</h2>
+            </div>
+            <div className="mt-4 rounded-2xl border border-line bg-bg/50 p-4">
+              <p className="truncate text-sm text-muted">{activeCv.label || 'No CV uploaded yet'}</p>
+              <div className="mt-2 flex items-end gap-4">
+                <div>
+                  <p className="text-2xl font-bold text-ink">{activeCv.skills.length}</p>
+                  <p className="text-xs text-muted">skills</p>
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-ink">{activeCv.totalYearsExperience}</p>
+                  <p className="text-xs text-muted">yrs experience</p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 space-y-2.5">
+              {activeCv.skills.length ? (
+                [...activeCv.skills]
+                  .sort((a, b) => (b.skillRank || 0) - (a.skillRank || 0))
+                  .slice(0, 5)
+                  .map((skill) => (
+                    <div key={skill.skillName}>
+                      <div className="mb-1 flex items-center justify-between text-sm">
+                        <span className="truncate text-ink">{skill.skillName}</span>
+                        <span className="font-mono text-xs text-muted">{skill.skillRank || 0}%</span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-line">
+                        <div className="h-full rounded-full bg-gradient-to-r from-primary to-cyan" style={{ width: `${skill.skillRank || 0}%` }} />
+                      </div>
+                    </div>
+                  ))
+              ) : (
+                <p className="text-sm leading-6 text-muted">Upload a CV in My CV to populate your skill signal.</p>
+              )}
+            </div>
+            <p className="mt-auto pt-4 text-xs leading-5 text-muted">
+              Targeting <span className="font-medium text-ink">{profile.targetRoles?.[0] || profile.targetRole || 'roles'}</span> from{' '}
+              {profileSearchLocation(profile)}.
+              {!view.isImpersonating && lastLiveSearchAt
+                ? ` Last search ${formatDistanceToNowStrict(new Date(lastLiveSearchAt), { addSuffix: true })}.`
+                : ''}
+            </p>
+          </div>
+        </Reveal>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2">
-        <div className="panel p-5">
-          <h2 className="text-lg font-semibold text-ink">Application funnel</h2>
-          <div className="mt-5 h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={funnel}>
-                <CartesianGrid stroke="#2D2D3A" strokeDasharray="3 3" />
-                <XAxis dataKey="status" stroke="#8B93A7" fontSize={12} />
-                <YAxis allowDecimals={false} stroke="#8B93A7" fontSize={12} />
-                <Tooltip contentStyle={{ background: '#1E1E2E', border: '1px solid #2D2D3A' }} />
-                <Bar dataKey="count" fill="#4A90D9" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+        <Reveal>
+          <div className="panel p-5">
+            <h2 className="text-lg font-semibold text-ink">Application stages</h2>
+            <p className="text-sm text-muted">Where your applications sit right now.</p>
+            <div className="mt-5 h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={funnel} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+                  <CartesianGrid stroke={CHART.grid} strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="status" stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} className="capitalize" />
+                  <YAxis allowDecimals={false} stroke={CHART.axis} fontSize={12} tickLine={false} axisLine={false} />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(99,102,241,0.08)' }}
+                    contentStyle={{ background: CHART.tooltipBg, border: `1px solid ${CHART.tooltipBorder}`, borderRadius: 12, color: '#E8EAF2' }}
+                  />
+                  <Bar dataKey="count" fill={CHART.indigo} radius={[8, 8, 0, 0]} maxBarSize={64} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-        </div>
+        </Reveal>
 
-        <div className="panel p-5">
-          <h2 className="text-lg font-semibold text-ink">Skills gap</h2>
-          <div className="mt-4 space-y-4">
-            {skillDemand.length ? (
-              skillDemand.map((skill) => (
-                <div key={skill.skill}>
-                  <div className="mb-1 flex items-center justify-between text-sm">
-                    <span className={skill.userHas ? 'text-ink' : 'text-warning'}>{skill.skill}</span>
-                    <span className="font-mono text-muted">{skill.marketDemandPct}%</span>
+        <Reveal delay={0.08}>
+          <div className="panel p-5">
+            <h2 className="text-lg font-semibold text-ink">Skills employers want</h2>
+            <p className="text-sm text-muted">In-demand skills from your matches — and which you already have.</p>
+            <div className="mt-5 space-y-4">
+              {skillDemand.length ? (
+                skillDemand.map((skill) => (
+                  <div key={skill.skill}>
+                    <div className="mb-1 flex items-center justify-between text-sm">
+                      <span className="font-medium text-ink">{skill.skill}</span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                          skill.userHas ? 'bg-success/15 text-success' : 'bg-warning/15 text-warning'
+                        }`}
+                      >
+                        {skill.userHas ? 'You have' : 'Add this'}
+                      </span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-line">
+                      <div
+                        className={`h-full rounded-full ${skill.userHas ? 'bg-success' : 'bg-warning'}`}
+                        style={{ width: `${skill.marketDemandPct}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-line">
-                    <div
-                      className={`h-full rounded-full ${skill.userHas ? 'bg-success' : 'bg-warning'}`}
-                      style={{ width: `${skill.marketDemandPct}%` }}
-                    />
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm leading-6 text-muted">
-                Run live extraction after uploading a CV to see market demand against your own skills.
-              </p>
-            )}
+                ))
+              ) : (
+                <p className="text-sm leading-6 text-muted">
+                  Run a live search after uploading a CV to see which in-demand skills you have and which to add.
+                </p>
+              )}
+            </div>
           </div>
-        </div>
+        </Reveal>
       </section>
     </div>
   )
@@ -2496,9 +2665,15 @@ function buildSkillDemand(scoredJobs: ScoredJob[], userSkills: string[]) {
     }))
 }
 
+const discoverySortOptions: { value: JobFilters['sort']; label: string }[] = [
+  { value: 'score', label: 'Best match' },
+  { value: 'date', label: 'Newest' },
+  { value: 'salary', label: 'Salary' },
+  { value: 'company', label: 'Company' },
+]
+
 function JobDiscoveryPage() {
   const scoredJobs = useScoredJobs()
-  const activeCv = useJobmatchStore((state) => state.activeCv)
   const filters = useJobmatchStore((state) => state.filters)
   const selectedJobId = useJobmatchStore((state) => state.selectedJobId)
   const liveJobSources = useJobmatchStore((state) => state.liveJobSources)
@@ -2509,9 +2684,17 @@ function JobDiscoveryPage() {
   const toggleSave = useJobmatchStore((state) => state.toggleSave)
   const applyToJob = useJobmatchStore((state) => state.applyToJob)
   const liveSearch = useLiveJobSearch()
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const filteredJobs = useMemo(() => filterAndSortJobs(scoredJobs, filters), [scoredJobs, filters])
   const selected = filteredJobs.find(({ job }) => job.id === selectedJobId) ?? filteredJobs[0] ?? scoredJobs[0]
   const sources = Array.from(new Set(scoredJobs.map(({ job }) => job.sourcePlatform))).sort()
+  const activeFilterCount =
+    filters.workModes.length +
+    filters.jobTypes.length +
+    filters.levels.length +
+    filters.sources.length +
+    (filters.scoreMin > 0 ? 1 : 0) +
+    (filters.salaryMin > 0 ? 1 : 0)
 
   const handleApply = (scoredJob: ScoredJob) => {
     applyToJob(scoredJob.job.id)
@@ -2519,77 +2702,126 @@ function JobDiscoveryPage() {
   }
 
   return (
-    <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)_420px]">
-      <FilterPanel filters={filters} sources={sources} onChange={setFilters} onReset={resetFilters} />
-
-      <section className="min-w-0">
-        <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
-          <div>
-            <p className="text-sm text-muted">AI-ranked feed</p>
-            <h2 className="text-2xl font-bold text-ink">{filteredJobs.length} matched roles</h2>
+    <div className="space-y-5">
+      {/* Toolbar */}
+      <div className="panel p-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="lg:min-w-[200px]">
+            <p className="text-xs font-semibold uppercase tracking-wide text-cyan">Best matches for you</p>
+            <h2 className="text-2xl font-bold text-ink">
+              {filteredJobs.length} {filteredJobs.length === 1 ? 'job' : 'jobs'}
+            </h2>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-1 flex-wrap items-center gap-2">
+            <span className="field-shell normal-case min-w-[12rem] flex-1">
+              <Search size={16} className="text-muted" />
+              <input
+                value={filters.search}
+                onChange={(event) => setFilters({ search: event.target.value })}
+                placeholder="Search title, company, skill…"
+                aria-label="Search jobs"
+              />
+            </span>
+            <PrettySelect<JobFilters['sort']>
+              value={filters.sort}
+              options={discoverySortOptions}
+              onChange={(sort) => setFilters({ sort })}
+              ariaLabel="Sort jobs"
+              icon={<TrendingUp size={15} />}
+            />
             <button
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+              type="button"
+              onClick={() => setFiltersOpen((open) => !open)}
+              className={`inline-flex h-11 items-center gap-2 rounded-xl border px-4 text-sm font-semibold transition ${
+                filtersOpen || activeFilterCount ? 'border-cyan bg-cyan/15 text-cyan' : 'border-line bg-panel text-ink hover:border-cyan/50'
+              }`}
+            >
+              <SlidersHorizontal size={16} /> Filters
+              {activeFilterCount ? (
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-cyan px-1 text-[10px] font-bold text-white">
+                  {activeFilterCount}
+                </span>
+              ) : null}
+            </button>
+            <button
+              className="inline-flex h-11 items-center gap-2 rounded-xl bg-primary px-4 text-sm font-semibold text-white shadow-glow transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={liveSearch.status === 'loading'}
               onClick={() => void liveSearch.runLiveSearch(false)}
             >
               <RefreshCw size={16} className={liveSearch.status === 'loading' ? 'animate-spin' : ''} />
-              {liveSearch.status === 'loading' ? 'Extracting...' : 'Run live extraction'}
-            </button>
-            <button
-              className="rounded-md border border-line bg-panel px-3 py-2 text-sm text-muted transition hover:border-primary hover:text-ink"
-              onClick={() => setFilters({ ...defaultFilters, scoreMin: 80 })}
-            >
-              80%+
-            </button>
-            <button
-              className="rounded-md border border-line bg-panel px-3 py-2 text-sm text-muted transition hover:border-primary hover:text-ink"
-              onClick={() => setFilters({ workModes: ['remote'], scoreMin: 70 })}
-            >
-              Remote
+              {liveSearch.status === 'loading' ? 'Searching…' : 'Run live search'}
             </button>
           </div>
         </div>
 
-        <div className="mb-4 rounded-md border border-line bg-panel/80 p-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-start gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/15 text-primary">
-                <Globe2 size={18} />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-ink">Live source status</p>
-                <p className="mt-1 text-xs leading-5 text-muted">
-                  Using {activeCv.skills.slice(0, 5).map((skill) => skill.skillName).join(', ') || 'your profile'}.
-                  {lastLiveSearchAt
-                    ? ` Last extracted ${formatDistanceToNowStrict(new Date(lastLiveSearchAt), { addSuffix: true })}.`
-                    : ' Run extraction to load real listings into your workspace.'}
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {(liveJobSources.length ? liveJobSources : [{ name: 'Ready', count: scoredJobs.length, ok: true }]).map((source) => (
-                <span
-                  key={source.name}
-                  className={`rounded-md border px-2 py-1 text-xs ${
-                    source.ok ? 'border-success/30 bg-success/10 text-success' : 'border-danger/30 bg-danger/10 text-danger'
-                  }`}
-                  title={source.error}
-                >
-                  {source.name}: {source.count}
-                </span>
-              ))}
-            </div>
-          </div>
-          {liveSearch.message ? (
-            <p className={`mt-3 text-xs ${liveSearch.status === 'error' ? 'text-danger' : 'text-muted'}`}>
-              {liveSearch.message}
-            </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            className="rounded-lg border border-line bg-bg/60 px-3 py-1.5 text-xs font-medium text-muted transition hover:border-cyan/50 hover:text-ink"
+            onClick={() => setFilters({ ...defaultFilters, scoreMin: 80 })}
+          >
+            80%+ match
+          </button>
+          <button
+            className="rounded-lg border border-line bg-bg/60 px-3 py-1.5 text-xs font-medium text-muted transition hover:border-cyan/50 hover:text-ink"
+            onClick={() => setFilters({ workModes: ['remote'], scoreMin: 70 })}
+          >
+            Remote only
+          </button>
+          {activeFilterCount ? (
+            <button
+              className="rounded-lg border border-line bg-bg/60 px-3 py-1.5 text-xs font-medium text-muted transition hover:border-danger/50 hover:text-danger"
+              onClick={() => resetFilters()}
+            >
+              Clear filters
+            </button>
           ) : null}
+          <span className="ml-auto inline-flex items-center gap-1.5 text-xs text-muted">
+            <Globe2 size={13} className="text-cyan" />
+            {lastLiveSearchAt
+              ? `Updated ${formatDistanceToNowStrict(new Date(lastLiveSearchAt), { addSuffix: true })}`
+              : 'No live search yet'}
+          </span>
         </div>
 
-        <div className="space-y-4">
+        {liveSearch.message ? (
+          <p className={`mt-3 text-xs ${liveSearch.status === 'error' ? 'text-danger' : 'text-muted'}`}>{liveSearch.message}</p>
+        ) : null}
+
+        {liveJobSources.length ? (
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
+            {liveJobSources.map((source) => (
+              <span
+                key={source.name}
+                className={`rounded-lg border px-2 py-0.5 text-xs ${
+                  source.ok ? 'border-success/30 bg-success/10 text-success' : 'border-danger/30 bg-danger/10 text-danger'
+                }`}
+                title={source.error}
+              >
+                {source.name}: {source.count}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      {/* Collapsible filters */}
+      <AnimatePresence initial={false}>
+        {filtersOpen ? (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.25 }}
+            className="overflow-hidden"
+          >
+            <FilterPanel filters={filters} sources={sources} onChange={setFilters} onReset={resetFilters} />
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      {/* Feed + detail */}
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
+        <section className="min-w-0 space-y-3">
           {filteredJobs.length ? (
             filteredJobs.map((scoredJob) => (
               <JobCard
@@ -2601,22 +2833,24 @@ function JobDiscoveryPage() {
               />
             ))
           ) : (
-            <div className="rounded-md border border-line bg-panel/80 p-8 text-center">
-              <Search className="mx-auto text-primary" size={28} />
-              <p className="mt-3 font-semibold text-ink">No matching jobs in the current filters</p>
-              <p className="mt-1 text-sm text-muted">Run live extraction or reset filters to refresh the feed.</p>
+            <div className="panel p-10 text-center">
+              <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan/15 text-cyan">
+                <Search size={26} />
+              </span>
+              <p className="mt-4 font-semibold text-ink">No jobs match your filters yet</p>
+              <p className="mt-1 text-sm text-muted">Run a live search or clear filters to refresh your feed.</p>
             </div>
           )}
-        </div>
-      </section>
+        </section>
 
-      {selected ? (
-        <JobDetailPanel
-          scoredJob={selected}
-          onApply={() => handleApply(selected)}
-          onToggleSave={() => toggleSave(selected.job.id)}
-        />
-      ) : null}
+        {selected ? (
+          <JobDetailPanel
+            scoredJob={selected}
+            onApply={() => handleApply(selected)}
+            onToggleSave={() => toggleSave(selected.job.id)}
+          />
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -2637,6 +2871,7 @@ function CvHubPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [parseStatus, setParseStatus] = useState<'idle' | 'uploading' | 'done' | 'error'>('idle')
   const [parseMessage, setParseMessage] = useState('')
+  const [dragOver, setDragOver] = useState(false)
   const [lastParsedCv, setLastParsedCv] = useState<ParsedCvPayload | null>(null)
   const [targetRole, setTargetRole] = useState(profile.targetRole)
   const [selectedCountry, setSelectedCountry] = useState(() => parseLocationSelection(profile.location).country)
@@ -2728,311 +2963,340 @@ function CvHubPage() {
     }
   }
 
+  const steps = [
+    {
+      title: 'Set your target',
+      text: profile.targetRoles?.[0] || profile.targetRole ? `Targeting ${profile.targetRoles?.[0] || profile.targetRole}.` : 'Tell us the role you want.',
+      done: Boolean(profile.targetRoles?.[0] || profile.targetRole),
+      icon: Target,
+    },
+    {
+      title: 'Upload your CV',
+      text: activeCv.skills.length ? `${activeCv.skills.length} skills detected from your CV.` : 'Drop a PDF or DOCX to detect your skills.',
+      done: activeCv.skills.length > 0,
+      icon: UploadCloud,
+    },
+    {
+      title: 'Save preferences',
+      text: profile.profileCompletedAt ? 'Preferences saved — ready to match.' : 'Confirm your preferences to unlock matching.',
+      done: Boolean(profile.profileCompletedAt),
+      icon: SlidersHorizontal,
+    },
+  ]
+
+  const onDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    setDragOver(false)
+    const file = event.dataTransfer.files?.[0]
+    if (file) void handleCvUpload(file)
+  }
+
   return (
     <div className="space-y-6">
-      <section className="panel overflow-hidden">
-        <div className="grid gap-5 bg-gradient-to-br from-primary/18 via-panel to-panel p-5 md:grid-cols-[1fr_auto] md:p-6">
+      <section className="panel relative overflow-hidden">
+        <div className="grid gap-5 bg-gradient-to-br from-success/18 via-panel to-panel p-5 md:grid-cols-[1fr_auto] md:p-6">
           <div>
-            <div className="mb-3 inline-flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary">
-              <Gauge size={16} />
-              Skills, rank, and CV signal
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-success/30 bg-success/10 px-3 py-1.5 text-sm font-semibold text-success">
+              <FileText size={16} />
+              Your resume &amp; skills
             </div>
-            <h2 className="text-2xl font-bold text-ink md:text-3xl">CV Hub</h2>
+            <h2 className="text-2xl font-bold text-ink md:text-3xl">My CV</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
-              Upload your CV, tune the role signal, and keep every skill ranked with a draggable percentage bar.
+              Upload your CV once — we detect your skills, rank them, and use them to find jobs that fit.
             </p>
           </div>
           <div className="grid grid-cols-3 gap-3 text-center md:min-w-[360px]">
             <CvMetric label="Skills" value={activeCv.skills.length} />
-            <CvMetric label="Avg rank" value={`${averageSkillRank(activeCv.skills)}%`} />
+            <CvMetric label="Avg level" value={`${averageSkillRank(activeCv.skills)}%`} />
             <CvMetric label="Years" value={activeCv.totalYearsExperience || 0} />
           </div>
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="panel p-5">
-          <div className="mb-5 flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-md bg-primary/15 text-primary">
-              <UploadCloud size={22} />
-            </div>
-            <div>
-              <h2 className="text-xl font-semibold text-ink">Onboarding pipeline</h2>
-              <p className="text-sm text-muted">Profile, CV parsing, and matching preferences are wired for the real APIs.</p>
-            </div>
+      {/* Getting started */}
+      <section className="panel p-5">
+        <div className="mb-5 flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-success/15 text-success">
+            <Wand2 size={21} />
           </div>
-          <div className="grid gap-4 md:grid-cols-3">
-            <StepPanel
-              step="01"
-              title="Profile"
-              text={`${profile.name}, ${profile.location}. Target role: ${profile.targetRole}.`}
-              icon={<UserRound size={18} />}
-            />
-            <StepPanel
-              step="02"
-              title="Upload CV"
-              text={`${activeCv.filename} parsed with ${activeCv.skills.length} skills and ${activeCv.totalYearsExperience} years experience.`}
-              icon={<FileText size={18} />}
-            />
-            <StepPanel
-              step="03"
-              title="Preferences"
-              text={`${profile.remotePreference} in ${profileSearchLocation(profile)}, salary from ${formatCurrency(profile.minimumSalary || profile.salaryMin)}.`}
-              icon={<CheckCircle2 size={18} />}
-            />
-          </div>
-          <div className="mt-6 flex min-h-[180px] items-center justify-center rounded-md border border-dashed border-line bg-bg/50 p-6 text-center">
-            <div>
-              <UploadCloud className="mx-auto text-primary" size={32} />
-              <p className="mt-3 text-sm font-semibold text-ink">Drop a PDF or DOCX CV</p>
-              <p className="mt-1 text-xs text-muted">PDF, DOCX, DOC, and TXT are parsed without Anthropic or any AI API.</p>
-              <input
-                ref={fileInputRef}
-                className="hidden"
-                type="file"
-                accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
-                onChange={(event) => {
-                  const file = event.target.files?.[0]
-                  if (file) void handleCvUpload(file)
-                  event.target.value = ''
-                }}
-              />
-              <button
-                type="button"
-                className="primary-button mt-4"
-                disabled={parseStatus === 'uploading'}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {parseStatus === 'uploading' ? 'Parsing...' : 'Browse file'}
-              </button>
-              {parseMessage ? (
-                <p
-                  className={`mt-3 text-xs ${
-                    parseStatus === 'error' ? 'text-danger' : parseStatus === 'done' ? 'text-success' : 'text-muted'
-                  }`}
-                >
-                  {parseMessage}
-                </p>
-              ) : null}
-            </div>
+          <div>
+            <h2 className="text-xl font-semibold text-ink">Getting started</h2>
+            <p className="text-sm text-muted">Three quick steps to unlock sharp job matches.</p>
           </div>
         </div>
+        <div className="grid gap-4 md:grid-cols-3">
+          {steps.map((step, index) => {
+            const Icon = step.icon
+            return (
+              <div
+                key={step.title}
+                className={`rounded-2xl border p-4 transition ${step.done ? 'border-success/40 bg-success/5' : 'border-line bg-bg/50'}`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${step.done ? 'bg-success/15 text-success' : 'bg-primary/15 text-primary'}`}>
+                    {step.done ? <Check size={20} /> : <Icon size={18} />}
+                  </span>
+                  <span className="font-mono text-2xl font-black text-line">0{index + 1}</span>
+                </div>
+                <p className="mt-4 font-semibold text-ink">{step.title}</p>
+                <p className="mt-1 text-sm leading-6 text-muted">{step.text}</p>
+              </div>
+            )
+          })}
+        </div>
 
-        <div className="space-y-6">
-          <div className="panel p-5">
-            <div className="mb-5 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-success/15 text-success">
-                <Target size={20} />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-ink">Candidate signal</h2>
-                <p className="text-sm text-muted">Tune the role, location, and skills used for live extraction.</p>
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="field-label">
-                Target role
-                <span className="field-shell normal-case">
-                  <BriefcaseBusiness size={16} className="text-muted" />
-                  <input value={targetRole} onChange={(event) => setTargetRole(event.target.value)} placeholder="Frontend Engineer" />
-                </span>
-              </label>
-              <label className="field-label">
-                Experience years
-                <span className="field-shell normal-case">
-                  <BriefcaseBusiness size={16} className="text-muted" />
-                  <input
-                    type="number"
-                    min={0}
-                    max={60}
-                    step={1}
-                    value={experienceYears}
-                    onChange={(event) => setExperienceYears(clampExperienceYears(event.target.value))}
-                    placeholder="5"
-                  />
-                </span>
-              </label>
-              <label className="field-label">
-                Country
-                <PrettySelect
-                  className="mt-2 normal-case"
-                  value={selectedCountry}
-                  options={countryCityOptions.map((option) => ({ value: option.country, label: option.country }))}
-                  onChange={(country) => {
-                    setSelectedCountry(country)
-                    setSelectedCity(getCitiesForCountry(country)[0] || '')
-                  }}
-                  ariaLabel="Country"
-                  icon={<Globe2 size={16} />}
-                />
-              </label>
-              <label className="field-label">
-                City
-                <PrettySelect
-                  className="mt-2 normal-case"
-                  value={selectedCity}
-                  options={selectedCities.map((city) => ({ value: city, label: city }))}
-                  onChange={setSelectedCity}
-                  ariaLabel="City"
-                  icon={<MapPin size={16} />}
-                />
-              </label>
-              <label className="flex min-h-11 items-center gap-3 rounded-md border border-line bg-bg/70 px-3 text-sm font-medium text-ink transition hover:border-primary/60 sm:mt-6">
-                <input
-                  type="checkbox"
-                  className="accent-primary"
-                  checked={preferredRemote}
-                  onChange={(event) => setPreferredRemote(event.target.checked)}
-                />
-                Remote preferred
-              </label>
-            </div>
-            <div className="field-label mt-4">
-              Matching note
-              <p className="mt-2 rounded-md border border-line bg-bg/60 p-3 text-sm normal-case leading-6 text-muted">
-                Skill editing and ranking is handled below. Job search uses the active CV skills, rank signal, target role, and location.
-              </p>
-            </div>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={saveProfileSignal}
-              >
-                <Plus size={16} />
-                Save signal
-              </button>
-              <button
-                type="button"
-                className="primary-button"
-                disabled={liveSearch.status === 'loading'}
-                onClick={searchFromCv}
-              >
-                <Rocket size={16} />
-                {liveSearch.status === 'loading' ? 'Searching...' : 'Search live jobs'}
-              </button>
-            </div>
-            {[profileMessage, liveSearch.message].filter(Boolean).map((message) => (
-              <p
-                key={message}
-                className={`mt-3 text-xs ${liveSearch.status === 'error' && message === liveSearch.message ? 'text-danger' : 'text-muted'}`}
-              >
-                {message}
-              </p>
-            ))}
-          </div>
-
-          <div className="panel p-5">
-            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
-              <div>
-                <h2 className="text-lg font-semibold text-ink">CV versions</h2>
-                <p className="mt-1 text-sm text-muted">Every CV row belongs to this signed-in user account.</p>
-              </div>
-              <button
-                type="button"
-                className="secondary-button border-danger/45 text-danger hover:border-danger hover:bg-danger/10"
-                disabled={!cvs.length}
-                onClick={handleClearCvData}
-              >
-                <Trash2 size={16} />
-                Clear all CV data
-              </button>
-            </div>
-            <div className="mt-4 space-y-3">
-              {cvs.length ? (
-                cvs.map((cv) => (
-                  <article
-                    key={cv.id}
-                    className={`rounded-md border p-4 transition ${
-                      cv.isActive ? 'border-primary bg-primary/10' : 'border-line bg-bg/60 hover:border-primary'
-                    }`}
-                  >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="font-semibold text-ink">{cv.label}</p>
-                        <p className="mt-1 text-xs text-muted">
-                          v{cv.version} · {cv.parseStatus} · {cv.skills.length} skills · {cv.totalYearsExperience || 0} years
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 flex-wrap gap-2">
-                        {cv.isActive ? (
-                          <span className="inline-flex h-9 items-center rounded-md bg-success/15 px-3 text-xs font-semibold text-success">
-                            Active
-                          </span>
-                        ) : (
-                          <button type="button" className="secondary-button h-9 px-3" onClick={() => activateCv(cv.id)}>
-                            <CheckCircle2 size={15} />
-                            Activate
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className="secondary-button h-9 border-danger/45 px-3 text-danger hover:border-danger hover:bg-danger/10"
-                          onClick={() => handleDeleteCv(cv)}
-                        >
-                          <Trash2 size={15} />
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  </article>
-                ))
+        {/* Upload zone */}
+        <div
+          onDragOver={(event) => {
+            event.preventDefault()
+            setDragOver(true)
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDrop}
+          className={`mt-5 flex min-h-[190px] items-center justify-center rounded-2xl border-2 border-dashed p-6 text-center transition ${
+            dragOver ? 'border-success bg-success/10' : 'border-line bg-bg/40'
+          }`}
+        >
+          <div>
+            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-success/15 text-success">
+              <UploadCloud size={28} />
+            </span>
+            <p className="mt-3 text-base font-semibold text-ink">Drag &amp; drop your CV here</p>
+            <p className="mt-1 text-xs text-muted">PDF, DOCX, DOC, or TXT — parsed privately on your device.</p>
+            <input
+              ref={fileInputRef}
+              className="hidden"
+              type="file"
+              accept=".pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (file) void handleCvUpload(file)
+                event.target.value = ''
+              }}
+            />
+            <button
+              type="button"
+              className="primary-button mt-4 rounded-xl"
+              disabled={parseStatus === 'uploading'}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {parseStatus === 'uploading' ? (
+                <>
+                  <RefreshCw size={16} className="animate-spin" /> Parsing…
+                </>
               ) : (
-                <p className="rounded-md border border-line bg-bg/60 p-4 text-sm text-muted">
-                  No CV uploaded yet. Upload a CV or save manual skills to create your first profile signal.
-                </p>
+                <>
+                  <UploadCloud size={16} /> Browse files
+                </>
               )}
-            </div>
-            {cvDataMessage ? <p className="mt-3 text-xs text-muted">{cvDataMessage}</p> : null}
+            </button>
+            {parseMessage ? (
+              <p className={`mt-3 text-xs ${parseStatus === 'error' ? 'text-danger' : parseStatus === 'done' ? 'text-success' : 'text-muted'}`}>
+                {parseMessage}
+              </p>
+            ) : null}
           </div>
         </div>
       </section>
 
-      <section className="panel p-5">
-        <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
-          <div>
-            <h2 className="text-lg font-semibold text-ink">Skills editor</h2>
-            <p className="mt-1 text-sm text-muted">Add, update, remove, and rank each skill from 0% to 100%.</p>
+      <section className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        {/* Search preferences */}
+        <div className="panel p-5">
+          <div className="mb-5 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan/15 text-cyan">
+              <Search size={20} />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-ink">Search preferences</h2>
+              <p className="text-sm text-muted">The role and location we use to fetch live jobs.</p>
+            </div>
           </div>
-          <span className="rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary">
-            {activeCv.skills.length} active skills
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="field-label">
+              Target role
+              <span className="field-shell normal-case">
+                <Briefcase size={16} className="text-muted" />
+                <input value={targetRole} onChange={(event) => setTargetRole(event.target.value)} placeholder="Frontend Engineer" />
+              </span>
+            </label>
+            <label className="field-label">
+              Years of experience
+              <span className="field-shell normal-case">
+                <Gauge size={16} className="text-muted" />
+                <input
+                  type="number"
+                  min={0}
+                  max={60}
+                  step={1}
+                  value={experienceYears}
+                  onChange={(event) => setExperienceYears(clampExperienceYears(event.target.value))}
+                  placeholder="5"
+                />
+              </span>
+            </label>
+            <label className="field-label">
+              Country
+              <PrettySelect
+                className="mt-2 normal-case"
+                value={selectedCountry}
+                options={countryCityOptions.map((option) => ({ value: option.country, label: option.country }))}
+                onChange={(country) => {
+                  setSelectedCountry(country)
+                  setSelectedCity(getCitiesForCountry(country)[0] || '')
+                }}
+                ariaLabel="Country"
+                icon={<Globe2 size={16} />}
+              />
+            </label>
+            <label className="field-label">
+              City
+              <PrettySelect
+                className="mt-2 normal-case"
+                value={selectedCity}
+                options={selectedCities.map((city) => ({ value: city, label: city }))}
+                onChange={setSelectedCity}
+                ariaLabel="City"
+                icon={<MapPin size={16} />}
+              />
+            </label>
+            <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-line bg-bg/60 px-3 text-sm font-medium text-ink transition hover:border-cyan/60 sm:col-span-2">
+              <input type="checkbox" className="h-4 w-4 accent-cyan" checked={preferredRemote} onChange={(event) => setPreferredRemote(event.target.checked)} />
+              I prefer remote roles
+            </label>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button type="button" className="secondary-button" onClick={saveProfileSignal}>
+              <Save size={16} /> Save
+            </button>
+            <button type="button" className="primary-button" disabled={liveSearch.status === 'loading'} onClick={searchFromCv}>
+              <Rocket size={16} />
+              {liveSearch.status === 'loading' ? 'Searching…' : 'Search live jobs'}
+            </button>
+          </div>
+          {[profileMessage, liveSearch.message].filter(Boolean).map((message) => (
+            <p key={message} className={`mt-3 text-xs ${liveSearch.status === 'error' && message === liveSearch.message ? 'text-danger' : 'text-muted'}`}>
+              {message}
+            </p>
+          ))}
+        </div>
+
+        {/* CV versions */}
+        <div className="panel p-5">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+            <div>
+              <h2 className="text-lg font-semibold text-ink">Your CVs</h2>
+              <p className="mt-1 text-sm text-muted">Switch the active CV or remove old versions.</p>
+            </div>
+            <button
+              type="button"
+              className="secondary-button border-danger/45 text-danger hover:border-danger hover:bg-danger/10"
+              disabled={!cvs.length}
+              onClick={handleClearCvData}
+            >
+              <Trash2 size={16} /> Clear all
+            </button>
+          </div>
+          <div className="mt-4 space-y-3">
+            {cvs.length ? (
+              cvs.map((cv) => (
+                <article
+                  key={cv.id}
+                  className={`rounded-2xl border p-4 transition ${cv.isActive ? 'border-success bg-success/10' : 'border-line bg-bg/50 hover:border-success/50'}`}
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-ink">{cv.label}</p>
+                      <p className="mt-1 text-xs text-muted">
+                        v{cv.version} · {cv.skills.length} skills · {cv.totalYearsExperience || 0} yrs
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      {cv.isActive ? (
+                        <span className="inline-flex h-9 items-center gap-1 rounded-lg bg-success/15 px-3 text-xs font-semibold text-success">
+                          <Check size={14} /> Active
+                        </span>
+                      ) : (
+                        <button type="button" className="secondary-button h-9 px-3 text-xs" onClick={() => activateCv(cv.id)}>
+                          <CheckCircle2 size={14} /> Use this
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="secondary-button h-9 border-danger/45 px-3 text-xs text-danger hover:border-danger hover:bg-danger/10"
+                        onClick={() => handleDeleteCv(cv)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <p className="rounded-2xl border border-dashed border-line bg-bg/40 p-6 text-center text-sm text-muted">
+                No CV yet. Upload one above or add skills below to create your first profile.
+              </p>
+            )}
+          </div>
+          {cvDataMessage ? <p className="mt-3 text-xs text-muted">{cvDataMessage}</p> : null}
+        </div>
+      </section>
+
+      {/* Skills board */}
+      <section className="panel p-5">
+        <div className="mb-5 flex flex-col justify-between gap-3 md:flex-row md:items-center">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-success/15 text-success">
+              <Sparkles size={21} />
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold text-ink">Your skills</h2>
+              <p className="text-sm text-muted">Add skills and drag the bar to set how strong you are at each.</p>
+            </div>
+          </div>
+          <span className="inline-flex items-center gap-1.5 self-start rounded-full border border-success/30 bg-success/10 px-3 py-1 text-sm font-semibold text-success">
+            {activeCv.skills.length} skills
           </span>
         </div>
         {lastParsedCv?.warnings.length ? (
-          <div className="mt-4 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
+          <div className="mb-4 rounded-xl border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
             {lastParsedCv.warnings.join(' ')}
           </div>
         ) : null}
-        <SkillManager
+        <SkillsBoard
           skills={activeCv.skills}
-          onSaveSkill={upsertSkill}
-          onRemoveSkill={removeSkill}
+          onAdd={(name, rank) =>
+            upsertSkill({
+              skillName: name,
+              skillCanonical: name,
+              skillType: 'technical',
+              yearsUsed: 0,
+              skillRank: rank,
+              confidence: 'medium',
+              isManual: true,
+            })
+          }
+          onUpdate={(next, previousCanonical) => upsertSkill(next, previousCanonical)}
+          onRemove={removeSkill}
         />
       </section>
 
-      <section>
+      {/* Education */}
+      <section className="panel p-5">
+        <h2 className="text-lg font-semibold text-ink">Education &amp; certificates</h2>
         {lastParsedCv ? (
-          <div className="panel p-5">
-            <h2 className="text-lg font-semibold text-ink">Education and certificates</h2>
-            <div className="mt-4 space-y-3">
-              {[...lastParsedCv.education, ...lastParsedCv.certifications].length ? (
-                [...lastParsedCv.education, ...lastParsedCv.certifications].map((item) => (
-                  <p key={item} className="rounded-md border border-line bg-bg/60 p-3 text-sm text-muted">
-                    {item}
-                  </p>
-                ))
-              ) : (
-                <p className="text-sm text-muted">No education or certification lines were detected.</p>
-              )}
-            </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {[...lastParsedCv.education, ...lastParsedCv.certifications].length ? (
+              [...lastParsedCv.education, ...lastParsedCv.certifications].map((item) => (
+                <span key={item} className="rounded-lg border border-line bg-bg/60 px-3 py-2 text-sm text-muted">
+                  {item}
+                </span>
+              ))
+            ) : (
+              <p className="text-sm text-muted">No education or certificates were detected in your CV.</p>
+            )}
           </div>
         ) : (
-          <div className="panel p-5">
-            <h2 className="text-lg font-semibold text-ink">Education and certificates</h2>
-            <p className="mt-4 text-sm leading-6 text-muted">
-              Upload a CV to extract education and certificates for this user account.
-            </p>
-          </div>
+          <p className="mt-4 text-sm leading-6 text-muted">Upload a CV to extract your education and certificates.</p>
         )}
       </section>
     </div>
@@ -3091,13 +3355,6 @@ function clampExperienceYears(value: number | string) {
   return Math.min(Math.max(Math.round(number), 0), 60)
 }
 
-const skillTypeOptions: CvSkill['skillType'][] = ['technical', 'framework', 'tool', 'soft', 'language', 'certification']
-
-const skillTypeSelectOptions = skillTypeOptions.map((option) => ({
-  value: option,
-  label: option.charAt(0).toUpperCase() + option.slice(1),
-}))
-
 function CvMetric({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-md border border-line bg-bg/65 p-4">
@@ -3107,305 +3364,31 @@ function CvMetric({ label, value }: { label: string; value: string | number }) {
   )
 }
 
-function SkillManager({
-  skills,
-  onSaveSkill,
-  onRemoveSkill,
-}: {
-  skills: CvSkill[]
-  onSaveSkill: (skill: CvSkill, previousCanonical?: string) => void
-  onRemoveSkill: (skillCanonical: string) => void
-}) {
-  const [newSkill, setNewSkill] = useState('')
-  const [newRank, setNewRank] = useState(75)
-  const [newType, setNewType] = useState<CvSkill['skillType']>('technical')
-  const sortedSkills = useMemo(
-    () => [...skills].sort((a, b) => (b.skillRank || 0) - (a.skillRank || 0) || a.skillName.localeCompare(b.skillName)),
-    [skills],
-  )
-
-  const addSkills = () => {
-    const names = newSkill
-      .split(',')
-      .map((skill) => skill.trim())
-      .filter(Boolean)
-    if (!names.length) return
-
-    names.forEach((name) =>
-      onSaveSkill({
-        skillName: name,
-        skillCanonical: name,
-        skillType: newType,
-        yearsUsed: 0,
-        skillRank: newRank,
-        confidence: rankToConfidenceLabel(newRank),
-        isManual: true,
-      }),
-    )
-    setNewSkill('')
-  }
-
-  return (
-    <div className="mt-5 space-y-4">
-      <div className="grid gap-3 rounded-md border border-line bg-bg/60 p-4 lg:grid-cols-[minmax(0,1fr)_180px_220px_auto] lg:items-end">
-        <label className="field-label">
-          Add skill
-          <span className="field-shell normal-case">
-            <Sparkles size={16} className="text-muted" />
-            <input
-              value={newSkill}
-              onChange={(event) => setNewSkill(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  addSkills()
-                }
-              }}
-              placeholder="React, TypeScript, Node.js"
-            />
-          </span>
-        </label>
-        <label className="field-label">
-          Type
-          <PrettySelect<CvSkill['skillType']>
-            className="mt-2 normal-case"
-            value={newType}
-            options={skillTypeSelectOptions}
-            onChange={setNewType}
-            ariaLabel="Skill type"
-          />
-        </label>
-        <SkillRankSlider label="Initial rank" value={newRank} onChange={setNewRank} />
-        <button type="button" className="primary-button h-11" onClick={addSkills}>
-          <Plus size={16} />
-          Add
-        </button>
-      </div>
-
-      {sortedSkills.length ? (
-        <div className="grid gap-3">
-          {sortedSkills.map((skill) => (
-            <SkillEditorRow
-              key={skill.skillCanonical}
-              skill={skill}
-              onSaveSkill={onSaveSkill}
-              onRemoveSkill={onRemoveSkill}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="rounded-md border border-dashed border-line bg-bg/50 p-8 text-center">
-          <Sparkles className="mx-auto text-primary" size={28} />
-          <p className="mt-3 font-semibold text-ink">No skills yet</p>
-          <p className="mt-1 text-sm text-muted">Upload a CV or add comma-separated skills above.</p>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function SkillEditorRow({
-  skill,
-  onSaveSkill,
-  onRemoveSkill,
-}: {
-  skill: CvSkill
-  onSaveSkill: (skill: CvSkill, previousCanonical?: string) => void
-  onRemoveSkill: (skillCanonical: string) => void
-}) {
-  const [isEditing, setIsEditing] = useState(false)
-  const [draftName, setDraftName] = useState(skill.skillName)
-  const [draftType, setDraftType] = useState<CvSkill['skillType']>(skill.skillType)
-  const [rank, setRank] = useState(skill.skillRank || 70)
-
-  useEffect(() => {
-    setDraftName(skill.skillName)
-    setDraftType(skill.skillType)
-    setRank(skill.skillRank || 70)
-  }, [skill.skillName, skill.skillRank, skill.skillType])
-
-  const save = (nextRank = rank) => {
-    const name = draftName.trim()
-    if (!name) return
-    onSaveSkill(
-      {
-        ...skill,
-        skillName: name,
-        skillCanonical: name,
-        skillType: draftType,
-        skillRank: nextRank,
-        confidence: rankToConfidenceLabel(nextRank),
-        isManual: true,
-      },
-      skill.skillCanonical,
-    )
-    setIsEditing(false)
-  }
-
-  const updateRank = (nextRank: number) => {
-    setRank(nextRank)
-  }
-
-  return (
-    <article className="rounded-md border border-line bg-bg/60 p-4 transition hover:border-primary/50">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.9fr)_auto] lg:items-center">
-        <div className="min-w-0">
-          {isEditing ? (
-            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_160px]">
-              <label className="field-label">
-                Skill
-                <input
-                  className="control mt-2 h-10 w-full rounded-md px-3 text-sm normal-case"
-                  value={draftName}
-                  onChange={(event) => setDraftName(event.target.value)}
-                />
-              </label>
-              <label className="field-label">
-                Type
-                <PrettySelect<CvSkill['skillType']>
-                  className="mt-2 normal-case"
-                  value={draftType}
-                  options={skillTypeSelectOptions}
-                  onChange={setDraftType}
-                  ariaLabel={`${skill.skillName} skill type`}
-                />
-              </label>
-            </div>
-          ) : (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="text-base font-semibold text-ink">{skill.skillName}</h3>
-                <span className="rounded-md border border-line bg-panel px-2 py-1 text-xs capitalize text-muted">
-                  {skill.skillType}
-                </span>
-              </div>
-              <p className="mt-1 text-xs capitalize text-muted">{skill.confidence} confidence</p>
-            </>
-          )}
-        </div>
-
-        <SkillRankSlider
-          label="Skill rank"
-          value={rank}
-          onChange={updateRank}
-          onCommit={(nextRank) => save(nextRank)}
-        />
-
-        <div className="flex items-center gap-2 lg:justify-end">
-          {isEditing ? (
-            <>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={() => save()}
-                aria-label={`Save ${skill.skillName}`}
-                title="Save"
-              >
-                <Save size={16} />
-              </button>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={() => {
-                  setDraftName(skill.skillName)
-                  setDraftType(skill.skillType)
-                  setRank(skill.skillRank || 70)
-                  setIsEditing(false)
-                }}
-                aria-label="Cancel edit"
-                title="Cancel"
-              >
-                <X size={16} />
-              </button>
-            </>
-          ) : (
-            <button
-              type="button"
-              className="icon-button"
-              onClick={() => setIsEditing(true)}
-              aria-label={`Edit ${skill.skillName}`}
-              title="Edit"
-            >
-              <Pencil size={16} />
-            </button>
-          )}
-          <button
-            type="button"
-            className="icon-button hover:border-danger hover:bg-danger/10 hover:text-danger"
-            onClick={() => onRemoveSkill(skill.skillCanonical)}
-            aria-label={`Remove ${skill.skillName}`}
-            title="Remove"
-          >
-            <Trash2 size={16} />
-          </button>
-        </div>
-      </div>
-    </article>
-  )
-}
-
-function SkillRankSlider({
-  label,
-  value,
-  onChange,
-  onCommit,
-}: {
-  label: string
-  value: number
-  onChange: (value: number) => void
-  onCommit?: (value: number) => void
-}) {
-  return (
-    <label className="block">
-      <div className="mb-2 flex items-center justify-between gap-3 text-xs font-semibold uppercase text-muted">
-        <span>{label}</span>
-        <span className="font-mono text-primary">{value}%</span>
-      </div>
-      <input
-        className="skill-range w-full"
-        style={{ '--rank': `${value}%` } as React.CSSProperties}
-        type="range"
-        min={0}
-        max={100}
-        step={1}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        onMouseUp={(event) => onCommit?.(Number(event.currentTarget.value))}
-        onTouchEnd={(event) => onCommit?.(Number(event.currentTarget.value))}
-        onBlur={(event) => onCommit?.(Number(event.currentTarget.value))}
-        aria-label={label}
-      />
-    </label>
-  )
-}
-
 function averageSkillRank(skills: CvSkill[]) {
   if (!skills.length) return 0
   return Math.round(skills.reduce((total, skill) => total + (skill.skillRank || 0), 0) / skills.length)
 }
 
-function rankToConfidenceLabel(rank: number): CvSkill['confidence'] {
-  if (rank >= 78) return 'high'
-  if (rank >= 45) return 'medium'
-  return 'low'
-}
-
 function TrackerPage() {
-  const scoredJobs = useScoredJobs()
-  const applications = useJobmatchStore((state) => state.applications)
+  const view = useWorkspaceView()
+  const { applications, profile, activeCv, jobs } = view
   const updateApplicationStatus = useJobmatchStore((state) => state.updateApplicationStatus)
+  const savedJobIds = useMemo(
+    () => applications.filter((a) => a.status === 'saved').map((a) => a.jobId),
+    [applications],
+  )
+  const scoredJobs = useMemo(() => scoreJobs(profile, activeCv, jobs, savedJobIds), [profile, activeCv, jobs, savedJobIds])
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+      <div className="panel flex flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center">
         <div>
-          <p className="text-sm text-muted">Application history</p>
-          <h2 className="text-2xl font-bold text-ink">Kanban tracker</h2>
+          <p className="text-xs font-semibold uppercase tracking-wide text-warning">Your pipeline</p>
+          <h2 className="text-2xl font-bold text-ink">
+            {applications.length} {applications.length === 1 ? 'application' : 'applications'}
+          </h2>
         </div>
-        <button
-          className="inline-flex items-center gap-2 rounded-md border border-line bg-panel px-3 py-2 text-sm font-semibold text-ink transition hover:border-primary"
-          onClick={() => downloadApplications(applications, scoredJobs)}
-        >
+        <button className="secondary-button" onClick={() => downloadApplications(applications, scoredJobs)}>
           <ClipboardList size={16} />
           Export CSV
         </button>
@@ -3414,103 +3397,125 @@ function TrackerPage() {
         applications={applications}
         scoredJobs={scoredJobs}
         onMove={(applicationId, status) => updateApplicationStatus(applicationId, status)}
+        readOnly={view.readOnly}
       />
     </div>
   )
 }
 
+const NOTIF_META: Record<string, { icon: typeof Bell; accent: Accent }> = {
+  new_match: { icon: Sparkles, accent: 'success' },
+  job_expiry: { icon: CalendarDays, accent: 'warning' },
+  follow_up_reminder: { icon: BellRing, accent: 'pink' },
+  system: { icon: ShieldCheck, accent: 'primary' },
+  new_source: { icon: Globe2, accent: 'cyan' },
+}
+
 function AlertsPage() {
-  const notifications = useJobmatchStore((state) => state.notifications)
+  const view = useWorkspaceView()
+  const notifications = view.notifications
   const markAllNotificationsRead = useJobmatchStore((state) => state.markAllNotificationsRead)
+  const unread = notifications.filter((notification) => !notification.isRead).length
 
   return (
     <section className="panel p-5">
       <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
         <div>
-          <p className="text-sm text-muted">Notifications</p>
-          <h2 className="text-2xl font-bold text-ink">Alerts and reminders</h2>
+          <p className="text-xs font-semibold uppercase tracking-wide text-pink">Notifications</p>
+          <h2 className="text-2xl font-bold text-ink">Alerts &amp; reminders</h2>
         </div>
-        <button
-          className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white"
-          onClick={markAllNotificationsRead}
-        >
-          Mark all read
-        </button>
+        {!view.readOnly && unread ? (
+          <button className="primary-button rounded-xl" onClick={markAllNotificationsRead}>
+            <Check size={16} /> Mark all read
+          </button>
+        ) : null}
       </div>
-      <div className="space-y-3">
-        {notifications.map((notification) => (
-          <article
-            key={notification.id}
-            className={`border p-4 ${notification.isRead ? 'border-line bg-bg/50' : 'border-primary/50 bg-primary/10'}`}
-          >
-            <div className="flex items-start gap-3">
-              <div className="mt-1 flex h-9 w-9 items-center justify-center rounded-md bg-panel text-primary">
-                <Bell size={17} />
-              </div>
-              <div>
-                <h3 className="font-semibold text-ink">{notification.title}</h3>
-                <p className="mt-1 text-sm leading-6 text-muted">{notification.message}</p>
-                <p className="mt-2 text-xs text-muted">
-                  {formatDistanceToNowStrict(new Date(notification.createdAt), { addSuffix: true })}
-                </p>
-              </div>
-            </div>
-          </article>
-        ))}
-      </div>
+      {notifications.length ? (
+        <div className="space-y-3">
+          {notifications.map((notification) => {
+            const meta = NOTIF_META[notification.type] ?? { icon: Bell, accent: 'primary' as Accent }
+            const Icon = meta.icon
+            return (
+              <article
+                key={notification.id}
+                className={`flex items-start gap-3 rounded-2xl border p-4 transition ${
+                  notification.isRead ? 'border-line bg-bg/40' : 'border-pink/30 bg-pink/5'
+                }`}
+              >
+                <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${ACCENT_SOFT[meta.accent]}`}>
+                  <Icon size={17} />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-ink">{notification.title}</h3>
+                  <p className="mt-1 text-sm leading-6 text-muted">{notification.message}</p>
+                  <p className="mt-2 text-xs text-muted">
+                    {formatDistanceToNowStrict(new Date(notification.createdAt), { addSuffix: true })}
+                  </p>
+                </div>
+                {!notification.isRead ? <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-pink" /> : null}
+              </article>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-dashed border-line bg-bg/40 p-10 text-center">
+          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-pink/15 text-pink">
+            <Inbox size={26} />
+          </span>
+          <p className="mt-4 font-semibold text-ink">You're all caught up</p>
+          <p className="mt-1 text-sm text-muted">New matches and reminders will show up here.</p>
+        </div>
+      )}
     </section>
   )
 }
 
 function AdminPage() {
   const liveJobSources = useJobmatchStore((state) => state.liveJobSources)
-  const jobs = useJobmatchStore((state) => state.jobs)
-  const fetched = liveJobSources.reduce((total, source) => total + source.count, 0)
-  const failures = liveJobSources.filter((source) => !source.ok).length
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 md:grid-cols-3">
-        <StatCard icon={<DatabaseZap size={20} />} label="Fetched last run" value={fetched} />
-        <StatCard icon={<Sparkles size={20} />} label="Workspace jobs" value={jobs.length} />
-        <StatCard icon={<ShieldCheck size={20} />} label="Source failures" value={failures} />
-      </section>
+      <AdminConsole />
 
       <section className="panel overflow-hidden">
-        <div className="border-b border-line p-5">
-          <h2 className="text-lg font-semibold text-ink">Job sources</h2>
-          <p className="text-sm text-muted">This table reflects the latest live extraction run for your workspace.</p>
+        <div className="flex items-center gap-3 border-b border-line p-5">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan/15 text-cyan">
+            <Network size={18} />
+          </span>
+          <div>
+            <h2 className="text-lg font-semibold text-ink">Live job source status</h2>
+            <p className="text-sm text-muted">The most recent live extraction run across your connected sources.</p>
+          </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left text-sm">
-            <thead className="bg-bg/70 text-xs uppercase text-muted">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead className="bg-bg/60 text-xs uppercase tracking-wide text-muted">
               <tr>
-                <th className="px-5 py-3">Source</th>
-                <th className="px-5 py-3">Status</th>
-                <th className="px-5 py-3">Fetched</th>
-                <th className="px-5 py-3">Message</th>
+                <th className="px-5 py-3 font-semibold">Source</th>
+                <th className="px-5 py-3 font-semibold">Status</th>
+                <th className="px-5 py-3 text-right font-semibold">Jobs</th>
+                <th className="px-5 py-3 font-semibold">Message</th>
               </tr>
             </thead>
             <tbody>
               {liveJobSources.length ? (
                 liveJobSources.map((source) => (
-                  <tr key={source.name} className="border-t border-line">
-                    <td className="px-5 py-4">
-                      <p className="font-semibold text-ink">{source.name}</p>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className={`rounded-md px-2 py-1 text-xs ${source.ok ? 'bg-success/15 text-success' : 'bg-danger/15 text-danger'}`}>
-                        {source.ok ? 'success' : 'failed'}
+                  <tr key={source.name} className="border-t border-line/60">
+                    <td className="px-5 py-3 font-semibold text-ink">{source.name}</td>
+                    <td className="px-5 py-3">
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${source.ok ? 'bg-success/15 text-success' : 'bg-danger/15 text-danger'}`}>
+                        <span className={`h-1.5 w-1.5 rounded-full ${source.ok ? 'bg-success' : 'bg-danger'}`} />
+                        {source.ok ? 'Healthy' : 'Failed'}
                       </span>
                     </td>
-                    <td className="px-5 py-4 font-mono text-muted">{source.count}</td>
-                    <td className="px-5 py-4 text-muted">{source.error || 'OK'}</td>
+                    <td className="px-5 py-3 text-right font-mono text-ink">{source.count}</td>
+                    <td className="px-5 py-3 text-muted">{source.error || 'OK'}</td>
                   </tr>
                 ))
               ) : (
-                <tr className="border-t border-line">
+                <tr className="border-t border-line/60">
                   <td className="px-5 py-6 text-sm text-muted" colSpan={4}>
-                    Run live extraction from Discovery or CV Hub to populate source status.
+                    No live extraction has run yet. Run a search from Find Jobs to populate source status.
                   </td>
                 </tr>
               )}
@@ -3519,68 +3524,66 @@ function AdminPage() {
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <HealthTile label="Database" value="Healthy" icon={<DatabaseZap size={18} />} />
-        <HealthTile label="Auth" value="Supabase session" icon={<UserRound size={18} />} />
-        <HealthTile label="Local parser" value="PDF/DOCX/TXT" icon={<Sparkles size={18} />} />
-        <HealthTile label="Live sources" value={`${liveJobSources.length || 3} configured`} icon={<Globe2 size={18} />} />
+        <HealthTile label="Auth" value="Supabase JWT + RLS" icon={<LockKeyhole size={18} />} />
+        <HealthTile label="CV parser" value="On-device" icon={<FileText size={18} />} />
+        <HealthTile label="Live sources" value={`${liveJobSources.length || 6} configured`} icon={<Globe2 size={18} />} />
       </section>
     </div>
   )
 }
+
+const settingsServices: { label: string; detail: string; icon: typeof Bell; accent: Accent }[] = [
+  { label: 'Supabase', detail: 'Auth, database, and row-level security for your account.', icon: DatabaseZap, accent: 'primary' },
+  { label: 'CV parser', detail: 'PDF, DOCX, DOC, and TXT parsed locally on your device.', icon: FileText, accent: 'success' },
+  { label: 'Live job sources', detail: 'Google Jobs, Adzuna, Jooble, RemoteOK and more.', icon: Globe2, accent: 'cyan' },
+  { label: 'Email (Brevo)', detail: 'Branded password-reset and digest emails.', icon: Mail, accent: 'violet' },
+  { label: 'Rate limiting', detail: 'Upstash Redis protects the live API routes.', icon: Gauge, accent: 'warning' },
+]
 
 function SettingsPage() {
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
       <section className="panel p-5">
-        <h2 className="text-lg font-semibold text-ink">Environment readiness</h2>
-        <div className="mt-4 space-y-3">
-          {[
-            ['Supabase', 'SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY, service-role key'],
-            ['CV parser', 'PDF/DOCX/TXT parsing runs locally through /api/parse-cv'],
-            ['Apify', 'APIFY_API_TOKEN plus webhook secret'],
-            ['Email', 'BREVO_API_KEY and verified sender for password recovery'],
-            ['Redis', 'Upstash REST credentials for shared rate limits'],
-          ].map(([label, detail]) => (
-            <div key={label} className="rounded-md border border-line bg-bg/60 p-4">
-              <p className="font-semibold text-ink">{label}</p>
-              <p className="mt-1 text-sm text-muted">{detail}</p>
-            </div>
-          ))}
+        <div className="mb-4 flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 text-primary">
+            <DatabaseZap size={18} />
+          </span>
+          <h2 className="text-lg font-semibold text-ink">Integrations &amp; services</h2>
+        </div>
+        <div className="space-y-3">
+          {settingsServices.map((service) => {
+            const Icon = service.icon
+            return (
+              <div key={service.label} className="flex items-start gap-3 rounded-2xl border border-line bg-bg/50 p-4">
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${ACCENT_SOFT[service.accent]}`}>
+                  <Icon size={16} />
+                </span>
+                <div>
+                  <p className="font-semibold text-ink">{service.label}</p>
+                  <p className="mt-1 text-sm text-muted">{service.detail}</p>
+                </div>
+              </div>
+            )
+          })}
         </div>
       </section>
 
       <section className="panel p-5">
-        <h2 className="text-lg font-semibold text-ink">Security controls</h2>
-        <div className="mt-4 space-y-3">
-          <SecurityRow icon={<LockKeyhole size={17} />} title="JWT + RLS" text="User-facing data maps to Supabase row-level policies." />
-          <SecurityRow icon={<ShieldCheck size={17} />} title="DOMPurify" text="Job HTML is sanitized before rendering." />
-          <SecurityRow icon={<LogOut size={17} />} title="GDPR flows" text="Export and account deletion endpoints are represented in docs and schema." />
+        <div className="mb-4 flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-success/15 text-success">
+            <ShieldCheck size={18} />
+          </span>
+          <h2 className="text-lg font-semibold text-ink">Security &amp; privacy</h2>
+        </div>
+        <div className="space-y-3">
+          <SecurityRow icon={<LockKeyhole size={17} />} title="JWT + Row-Level Security" text="Your data is scoped to your account by Supabase policies." />
+          <SecurityRow icon={<ShieldCheck size={17} />} title="Sanitized content" text="Job HTML is cleaned with DOMPurify before it renders." />
+          <SecurityRow icon={<FileText size={17} />} title="Local CV parsing" text="Resume files are parsed on your device, not uploaded to an AI." />
+          <SecurityRow icon={<LogOut size={17} />} title="Export & deletion" text="GDPR-ready export and account deletion are part of the schema." />
         </div>
       </section>
-    </div>
-  )
-}
-
-function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
-  return (
-    <div className="panel p-5">
-      <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-md bg-primary/15 text-primary">{icon}</div>
-      <p className="text-sm text-muted">{label}</p>
-      <p className="mt-1 text-3xl font-bold text-ink">{value}</p>
-    </div>
-  )
-}
-
-function StepPanel({ step, title, text, icon }: { step: string; title: string; text: string; icon: React.ReactNode }) {
-  return (
-    <div className="rounded-md border border-line bg-bg/60 p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <span className="font-mono text-xs text-primary">{step}</span>
-        <span className="text-primary">{icon}</span>
-      </div>
-      <p className="font-semibold text-ink">{title}</p>
-      <p className="mt-2 text-sm leading-6 text-muted">{text}</p>
     </div>
   )
 }
