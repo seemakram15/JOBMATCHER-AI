@@ -18,6 +18,11 @@ export default defineConfig(({ mode }) => {
     'SUPABASE_URL',
     'SUPABASE_SERVICE_ROLE_KEY',
     'DATABASE_URL',
+    'BREVO_API_KEY',
+    'BREVO_SENDER_EMAIL',
+    'BREVO_SENDER_NAME',
+    'SENDER_EMAIL',
+    'APP_URL',
   ]) {
     if (!process.env[key] && env[key]) {
       process.env[key] = env[key]
@@ -50,6 +55,14 @@ export default defineConfig(({ mode }) => {
             try {
               const { default: authSignupHandler } = await import('./api/auth-signup')
               await authSignupHandler(req, res)
+            } catch (error) {
+              sendApiMiddlewareError(res, error)
+            }
+          })
+          server.middlewares.use('/api/password-reset', async (req, res) => {
+            try {
+              const { default: passwordResetHandler } = await import('./api/password-reset')
+              await passwordResetHandler(req, res)
             } catch (error) {
               sendApiMiddlewareError(res, error)
             }

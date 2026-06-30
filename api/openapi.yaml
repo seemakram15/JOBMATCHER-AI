@@ -18,6 +18,19 @@ paths:
       responses:
         '201':
           description: User registered.
+  /password-reset:
+    post:
+      summary: Send a custom Brevo password reset email.
+      description: Generates a Supabase recovery token server-side and sends a branded Jobmatcher recovery link through Brevo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetRequest'
+      responses:
+        '202':
+          description: Reset request accepted without exposing whether the account exists.
   /cv/upload:
     post:
       summary: Upload a PDF or DOCX CV and queue AI parsing.
@@ -101,6 +114,13 @@ components:
           minLength: 12
         name:
           type: string
+    PasswordResetRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
     Error:
       type: object
       properties:

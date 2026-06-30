@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import { defaultFilters, emptyCv, createEmptyProfile } from '../lib/defaults'
-import { getPasswordRecoveryRedirectUrl } from '../lib/appUrl'
 import { hasSupabaseConfig, requireSupabase, supabase } from '../lib/supabase'
 import { scoreJobs } from '../lib/scoring'
 import {
@@ -113,6 +112,24 @@ function isRecoveryUrl() {
   return hash.includes('type=recovery') || new URLSearchParams(search).get('mode') === 'recovery'
 }
 
+function getRecoveryTokenHash() {
+  if (typeof window === 'undefined') return ''
+  const searchParams = new URLSearchParams(window.location.search)
+  const hashParams = new URLSearchParams((window.location.hash || '').replace(/^#/, ''))
+  const type = searchParams.get('type') || hashParams.get('type')
+  if (type !== 'recovery') return ''
+  return searchParams.get('token_hash') || hashParams.get('token_hash') || ''
+}
+
+function clearRecoveryTokenFromUrl() {
+  if (typeof window === 'undefined') return
+  const url = new URL(window.location.href)
+  url.searchParams.set('mode', 'recovery')
+  url.searchParams.delete('type')
+  url.searchParams.delete('token_hash')
+  window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`)
+}
+
 const emptyState = {
   authStatus: 'loading' as AuthStatus,
   workspaceStatus: 'idle' as WorkspaceStatus,
@@ -151,6 +168,24 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
         workspaceStatus: 'error',
       })
       return
+    }
+
+    const recoveryTokenHash = getRecoveryTokenHash()
+    if (recoveryTokenHash) {
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        type: 'recovery',
+        token_hash: recoveryTokenHash,
+      })
+      clearRecoveryTokenFromUrl()
+      if (verifyError) {
+        set({
+          authStatus: 'error',
+          authMessage: 'This reset link is invalid or expired. Please request a new password reset email.',
+          workspaceStatus: 'idle',
+          recoveryMode: false,
+        })
+        return
+      }
     }
 
     const recovering = isRecoveryUrl()
@@ -254,12 +289,17 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
     resetWorkspace(set, 'unauthenticated')
   },
   requestPasswordReset: async (email) => {
-    const client = requireSupabase()
-    const { error } = await client.auth.resetPasswordForEmail(
-      email.trim(),
-      { redirectTo: getPasswordRecoveryRedirectUrl() },
-    )
-    if (error) throw error
+    const response = await fetch('/api/password-reset', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.trim() }),
+    })
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null)
+      const message = payload?.error?.message || 'Could not send the reset email.'
+      throw new Error(message)
+    }
   },
   updatePassword: async (newPassword, currentPassword) => {
     const client = requireSupabase()
