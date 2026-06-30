@@ -65,11 +65,14 @@ export function JobDetailPanel({ scoredJob, onApply, onToggleSave }: JobDetailPa
       </div>
 
       <div className="mt-6">
-        <p className="mb-3 text-sm font-semibold text-ink">Description</p>
-        <div
-          className="prose prose-invert prose-sm max-w-none text-muted prose-li:marker:text-primary"
-          dangerouslySetInnerHTML={{ __html: cleanDescription }}
-        />
+        <p className="mb-3 text-sm font-semibold text-ink">Job description</p>
+        <div className="rounded-xl border border-line bg-bg/50 p-4">
+          {cleanDescription.trim() ? (
+            <div className="job-description" dangerouslySetInnerHTML={{ __html: cleanDescription }} />
+          ) : (
+            <p className="text-sm text-muted">No description was provided for this listing. Open the source listing for full details.</p>
+          )}
+        </div>
       </div>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2">

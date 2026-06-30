@@ -46,7 +46,7 @@ interface UserRow {
   profile_completed_at?: string | null
   currency: string | null
   preferred_remote: boolean | null
-  role: 'job_seeker' | 'admin' | null
+  role: 'job_seeker' | 'admin' | 'superadmin' | null
 }
 
 interface CvRow {
@@ -212,6 +212,50 @@ export async function fetchWorkspace(user: User): Promise<WorkspaceSnapshot> {
     applications,
     notifications: ((notificationRows || []) as NotificationRow[]).map(mapNotification),
   }
+}
+
+export interface WorkspaceRows {
+  userRow: UserRow
+  cvRows: CvRow[]
+  appRows: ApplicationRow[]
+  notificationRows: NotificationRow[]
+  jobRows: Record<string, unknown>[]
+}
+
+/**
+ * Pure builder: turns raw DB rows into a WorkspaceSnapshot using the same mappers
+ * as fetchWorkspace. Used by the admin "view as user" flow, where the rows come
+ * from the verified service-role endpoint instead of the browser client.
+ */
+export function buildWorkspaceFromRows(rows: WorkspaceRows): WorkspaceSnapshot {
+  const profile = mapUser(rows.userRow)
+  const cvs = (rows.cvRows || []).map(mapCv)
+  const activeCv = cvs.find((cv) => cv.isActive) ?? cvs[0] ?? emptyCv
+  const applications = (rows.appRows || []).map(mapApplication)
+  const jobs = (rows.jobRows || []).map(mapJob)
+
+  return {
+    profile: { ...profile, activeCvId: activeCv.id },
+    cvs,
+    activeCv,
+    jobs,
+    applications,
+    notifications: (rows.notificationRows || []).map(mapNotification),
+  }
+}
+
+/** Records a live-search event for the current user (powers admin search stats). */
+export async function recordSearch(query: string, resultCount: number) {
+  const client = requireSupabase()
+  const { data } = await client.auth.getUser()
+  const userId = data.user?.id
+  if (!userId) return
+  const { error } = await client.from('search_events').insert({
+    user_id: userId,
+    query: (query || '').slice(0, 200),
+    result_count: Math.max(0, Math.round(resultCount) || 0),
+  })
+  if (error) throw error
 }
 
 export async function updateUserProfile(profile: UserProfile) {

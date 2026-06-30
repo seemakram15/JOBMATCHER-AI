@@ -1,4 +1,4 @@
-export type UserRole = 'job_seeker' | 'admin'
+export type UserRole = 'job_seeker' | 'admin' | 'superadmin'
 export type WorkMode = 'remote' | 'hybrid' | 'onsite'
 export type RemotePreference = WorkMode | 'any'
 export type JobType = 'full_time' | 'part_time' | 'contract' | 'freelance' | 'internship'
@@ -206,4 +206,44 @@ export interface JobFilters {
   datePosted: 'any' | 'today' | '3days' | 'week' | 'month'
   salaryMin: number
   sort: 'score' | 'date' | 'salary' | 'company'
+}
+
+// --- Admin console + impersonation ---
+
+export interface AdminUserStat {
+  id: string
+  email: string
+  name: string
+  role: UserRole
+  isActive: boolean
+  applicationCount: number
+  appliedCount: number
+  searchCount: number
+  cvCount: number
+  lastActiveAt: string | null
+  createdAt: string | null
+}
+
+export interface AdminOverview {
+  totalUsers: number
+  totalApplications: number
+  totalSearches: number
+  activeUsers: number
+  users: AdminUserStat[]
+}
+
+export interface ImpersonationSnapshot {
+  profile: UserProfile
+  cvs: CvProfile[]
+  activeCv: CvProfile
+  jobs: Job[]
+  applications: Application[]
+  notifications: NotificationItem[]
+}
+
+export interface ImpersonationState {
+  userId: string
+  email: string
+  name: string
+  snapshot: ImpersonationSnapshot
 }
