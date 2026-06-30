@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { filterRelevantJobsForSearch } from './liveJobs'
+import { explainLiveJobRelevance, filterRelevantJobsForSearch } from './liveJobs'
 import type { Job } from '../types'
 
 const now = new Date().toISOString()
@@ -86,11 +86,95 @@ describe('live job relevance filtering', () => {
       {
         query: 'Software Engineer',
         skills: cvSkills,
+        avoidKeywords: ['Data Entry', 'Assistant', 'Administrator'],
+        preferredCountries: ['Remote'],
+        preferredCities: ['Remote'],
+        remotePreference: 'remote',
         experienceYears: 5,
         limit: 10,
       },
     )
 
     expect(results.map((result) => result.title)).toEqual(['Senior Frontend Engineer', 'Software Engineer'])
+  })
+
+  it('uses profile preferences to keep location and avoid-keyword filters strict', () => {
+    const results = filterRelevantJobsForSearch(
+      [
+        job({
+          title: 'React Frontend Engineer',
+          description: 'Frontend product work with React, TypeScript, and REST APIs.',
+          skillsRequired: [
+            { skill: 'React', required: true, weight: 1 },
+            { skill: 'TypeScript', required: true, weight: 1 },
+          ],
+          location: 'Remote',
+          workMode: 'remote',
+          isRemote: true,
+        }),
+        job({
+          title: 'React Sales Engineer',
+          description: 'Sales demos, account handling, and light React examples.',
+          skillsRequired: [{ skill: 'React', required: true, weight: 1 }],
+        }),
+        job({
+          title: 'Frontend Engineer',
+          location: 'Berlin, Germany',
+          country: 'Germany',
+          city: 'Berlin',
+          isRemote: false,
+          workMode: 'onsite',
+          description: 'React and TypeScript platform work from Berlin office.',
+          skillsRequired: [
+            { skill: 'React', required: true, weight: 1 },
+            { skill: 'TypeScript', required: true, weight: 1 },
+          ],
+        }),
+      ],
+      {
+        query: 'Frontend Engineer',
+        skills: ['React', 'TypeScript', 'REST APIs'],
+        mustHaveSkills: ['React', 'TypeScript'],
+        avoidKeywords: ['Sales'],
+        preferredCountries: ['Remote'],
+        preferredCities: ['Remote'],
+        remotePreference: 'remote',
+        experienceYears: 4,
+        limit: 10,
+      },
+    )
+
+    expect(results.map((result) => result.title)).toEqual(['React Frontend Engineer'])
+  })
+
+  it('builds source queries from the main role, must-have skills, and ranked CV Hub skills', () => {
+    const explanation = explainLiveJobRelevance(
+      job({
+        title: 'Frontend Platform Engineer',
+        description: 'React, TypeScript, GraphQL, REST APIs, and Node.js product work.',
+        skillsRequired: [
+          { skill: 'React', required: true, weight: 1 },
+          { skill: 'TypeScript', required: true, weight: 1 },
+          { skill: 'GraphQL', required: true, weight: 1 },
+        ],
+      }),
+      {
+        query: 'Frontend Engineer',
+        targetRoles: ['Frontend Engineer'],
+        mustHaveSkills: ['React'],
+        skills: ['React', 'TypeScript', 'GraphQL', 'REST APIs', 'Node.js'],
+        preferredCountries: ['Remote'],
+        preferredCities: ['Remote'],
+        remotePreference: 'remote',
+        experienceYears: 4,
+        limit: 10,
+      },
+    )
+
+    expect(explanation.search.sourceQuery).toContain('Frontend Engineer')
+    expect(explanation.search.sourceQuery).toContain('React')
+    expect(explanation.search.sourceQuery).toContain('TypeScript')
+    expect(explanation.search.sourceQuery).toContain('GraphQL')
+    expect(explanation.relevance.accept).toBe(true)
   })
 })

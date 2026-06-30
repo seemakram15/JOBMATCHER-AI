@@ -31,8 +31,19 @@ interface UserRow {
   headline: string | null
   location: string | null
   target_role: string | null
+  target_roles?: string[] | null
+  must_have_skills?: string[] | null
+  avoid_keywords?: string[] | null
+  preferred_countries?: string[] | null
+  preferred_cities?: string[] | null
+  remote_preference?: UserProfile['remotePreference'] | null
   salary_min: number | null
   salary_max: number | null
+  minimum_salary?: number | null
+  experience_years?: number | null
+  good_job_examples?: string[] | null
+  bad_job_examples?: string[] | null
+  profile_completed_at?: string | null
   currency: string | null
   preferred_remote: boolean | null
   role: 'job_seeker' | 'admin' | null
@@ -133,10 +144,21 @@ export async function ensureUserProfile(user: User) {
       name,
       role: 'job_seeker',
       location: 'Remote',
-      target_role: 'Software Engineer',
+      target_role: '',
+      target_roles: [],
+      must_have_skills: [],
+      avoid_keywords: [],
+      preferred_countries: ['Remote'],
+      preferred_cities: ['Remote'],
+      remote_preference: 'remote',
       preferred_remote: true,
       salary_min: 0,
       salary_max: 0,
+      minimum_salary: 0,
+      experience_years: 0,
+      good_job_examples: [],
+      bad_job_examples: [],
+      profile_completed_at: null,
       currency: 'USD',
     })
     .select('*')
@@ -202,9 +224,20 @@ export async function updateUserProfile(profile: UserProfile) {
       headline: safe.headline,
       location: safe.location,
       target_role: safe.targetRole,
+      target_roles: safe.targetRoles,
+      must_have_skills: safe.mustHaveSkills,
+      avoid_keywords: safe.avoidKeywords,
+      preferred_countries: safe.preferredCountries,
+      preferred_cities: safe.preferredCities,
+      remote_preference: safe.remotePreference,
       preferred_remote: safe.preferredRemote,
       salary_min: safe.salaryMin,
       salary_max: safe.salaryMax,
+      minimum_salary: safe.minimumSalary,
+      experience_years: safe.experienceYears,
+      good_job_examples: safe.goodJobExamples,
+      bad_job_examples: safe.badJobExamples,
+      profile_completed_at: safe.profileCompletedAt,
       currency: safe.currency,
     })
     .eq('id', safe.id)
@@ -487,8 +520,19 @@ function mapUser(row: UserRow): UserProfile {
     role: row.role || 'job_seeker',
     headline: row.headline || '',
     location: row.location || 'Remote',
-    targetRole: row.target_role || 'Software Engineer',
+    targetRole: row.target_role || '',
+    targetRoles: listFromJson(row.target_roles, row.target_role || undefined),
+    mustHaveSkills: listFromJson(row.must_have_skills),
+    avoidKeywords: listFromJson(row.avoid_keywords),
+    preferredCountries: listFromJson(row.preferred_countries, row.location === 'Remote' ? 'Remote' : undefined),
+    preferredCities: listFromJson(row.preferred_cities, row.location || 'Remote'),
+    remotePreference: row.remote_preference || (row.preferred_remote ? 'remote' : 'onsite'),
     preferredRemote: Boolean(row.preferred_remote),
+    minimumSalary: row.minimum_salary ?? row.salary_min ?? 0,
+    experienceYears: row.experience_years ?? 0,
+    goodJobExamples: listFromJson(row.good_job_examples),
+    badJobExamples: listFromJson(row.bad_job_examples),
+    profileCompletedAt: row.profile_completed_at || null,
     salaryMin: row.salary_min || 0,
     salaryMax: row.salary_max || 0,
     currency: row.currency || 'USD',
@@ -605,6 +649,17 @@ function mapJob(row: Record<string, unknown>): Job {
 
 function optionalNumber(value: unknown) {
   return value === null || value === undefined ? undefined : Number(value)
+}
+
+function listFromJson(value: unknown, fallback?: string) {
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : []
+  const output = values.map((item) => sanitiseText(item, 120)).filter(Boolean)
+  if (output.length) return output
+  return fallback ? [fallback] : []
 }
 
 function normaliseDateForDb(value: string) {

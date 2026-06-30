@@ -72,13 +72,11 @@ interface JobmatchState {
   removeSkill: (skillCanonical: string) => void
   setActiveExperience: (years: number) => void
   replaceActiveExperience: (experience: CvExperience[], totalYears: number) => void
-  updateProfile: (profile: Partial<Pick<UserProfile, 'targetRole' | 'location' | 'preferredRemote'>>) => void
+  updateProfile: (profile: Partial<UserProfile>) => void
   setLiveJobs: (jobs: Job[], sources: LiveJobSourceResult[]) => void
 }
 
 let authListenerStarted = false
-let visibilityRefreshStarted = false
-let lastVisibilityRefreshAt = 0
 
 type WorkspaceCache = Pick<
   JobmatchState,
@@ -159,19 +157,28 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
       authListenerStarted = true
       supabase.auth.onAuthStateChange((event, session) => {
         const nextUser = session?.user
-        if (nextUser) {
-          const state = useJobmatchStore.getState()
-          const isSameUser = state.userId === nextUser.id || state.profile.id === nextUser.id
-          void loadWorkspaceForUser(nextUser.id, nextUser.email || '', {
-            background: isSameUser && (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED'),
-          })
-        } else {
+        if (!nextUser) {
           resetWorkspace(set, 'unauthenticated')
+          return
         }
+
+        const state = useJobmatchStore.getState()
+        const isSameUser = state.userId === nextUser.id || state.profile.id === nextUser.id
+
+        if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED' || isSameUser) {
+          useJobmatchStore.setState({
+            authStatus: 'authenticated',
+            userId: nextUser.id,
+            profile: isSameUser
+              ? { ...state.profile, id: nextUser.id, email: nextUser.email || state.profile.email }
+              : state.profile,
+          })
+          return
+        }
+
+        void loadWorkspaceForUser(nextUser.id, nextUser.email || '')
       })
     }
-
-    startVisibilityRefresh()
   },
   signUp: async (email, password, name) => {
     const client = requireSupabase()
@@ -617,23 +624,6 @@ function resetWorkspace(
     authStatus,
     workspaceStatus: authStatus === 'unauthenticated' ? 'idle' : 'error',
     authMessage,
-  })
-}
-
-function startVisibilityRefresh() {
-  if (visibilityRefreshStarted || typeof document === 'undefined') return
-  visibilityRefreshStarted = true
-
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible') return
-
-    const now = Date.now()
-    if (now - lastVisibilityRefreshAt < 10_000) return
-    lastVisibilityRefreshAt = now
-
-    const state = useJobmatchStore.getState()
-    if (state.authStatus !== 'authenticated' || !state.userId) return
-    void loadWorkspaceForUser(state.userId, state.profile.email, { background: true })
   })
 }
 

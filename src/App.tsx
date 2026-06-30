@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import {
   ArrowRight,
   Bell,
@@ -58,13 +58,24 @@ import { JobCard } from './components/JobCard'
 import { JobDetailPanel } from './components/JobDetailPanel'
 import { KanbanBoard } from './components/KanbanBoard'
 import { PrettySelect } from './components/PrettySelect'
+import {
+  getProfileCompletion,
+  isProfileComplete,
+  joinPreferenceText,
+  normaliseRemotePreference,
+  profileSearchLocation,
+  profileSearchSkills,
+  splitPreferenceText,
+  usefulPreferenceTerms,
+} from './lib/profilePreferences'
 import { filterAndSortJobs, scoreJobs } from './lib/scoring'
 import { defaultFilters } from './lib/defaults'
 import { useJobmatchStore } from './store/useJobmatchStore'
-import type { Application, CvProfile, CvSkill, Job, LiveJobSourceResult, ParsedCvPayload, ScoredJob } from './types'
+import type { Application, CvProfile, CvSkill, Job, LiveJobSourceResult, ParsedCvPayload, RemotePreference, ScoredJob, UserProfile } from './types'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/profile', label: 'Profile', icon: UserRound },
   { to: '/jobs', label: 'Discovery', icon: Search },
   { to: '/cv', label: 'CV Hub', icon: FileText },
   { to: '/tracker', label: 'Tracker', icon: ClipboardList },
@@ -96,6 +107,8 @@ const countryCityOptions = [
 function App() {
   const location = useLocation()
   const authStatus = useJobmatchStore((state) => state.authStatus)
+  const workspaceStatus = useJobmatchStore((state) => state.workspaceStatus)
+  const profile = useJobmatchStore((state) => state.profile)
   const initializeAuth = useJobmatchStore((state) => state.initializeAuth)
   const hasWorkspaceSnapshot = useJobmatchStore((state) =>
     Boolean(
@@ -128,16 +141,22 @@ function App() {
     return <AuthPage />
   }
 
+  if (authStatus === 'authenticated' && workspaceStatus !== 'loading' && !isProfileComplete(profile) && location.pathname !== '/profile') {
+    return <Navigate to="/profile" replace state={{ from: location.pathname }} />
+  }
+
   return (
     <AppShell>
       <Routes>
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
         <Route path="/jobs" element={<JobDiscoveryPage />} />
         <Route path="/cv" element={<CvHubPage />} />
         <Route path="/tracker" element={<TrackerPage />} />
         <Route path="/alerts" element={<AlertsPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </AppShell>
   )
@@ -364,6 +383,7 @@ function AuthPage() {
   const queryMode = new URLSearchParams(location.search).get('mode')
   const authStatus = useJobmatchStore((state) => state.authStatus)
   const workspaceStatus = useJobmatchStore((state) => state.workspaceStatus)
+  const profile = useJobmatchStore((state) => state.profile)
   const authMessage = useJobmatchStore((state) => state.authMessage)
   const signIn = useJobmatchStore((state) => state.signIn)
   const signUp = useJobmatchStore((state) => state.signUp)
@@ -374,8 +394,10 @@ function AuthPage() {
   const [formMessage, setFormMessage] = useState('')
 
   useEffect(() => {
-    if (authStatus === 'authenticated' && workspaceStatus === 'ready') navigate('/dashboard')
-  }, [authStatus, workspaceStatus, navigate])
+    if (authStatus === 'authenticated' && workspaceStatus === 'ready') {
+      navigate(isProfileComplete(profile) ? '/dashboard' : '/profile')
+    }
+  }, [authStatus, workspaceStatus, profile, navigate])
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -653,23 +675,33 @@ function useLiveJobSearch() {
 
   const runLiveSearch = async (goToJobs = false) => {
     const { profile, activeCv } = useJobmatchStore.getState()
-    const skills = [...activeCv.skills]
+    const rankedCvSkills = [...activeCv.skills]
       .sort((a, b) => (b.skillRank || 0) - (a.skillRank || 0))
       .map((skill) => skill.skillName)
       .filter(Boolean)
       .slice(0, 20)
+    const skills = profileSearchSkills(profile, rankedCvSkills).slice(0, 30)
     if (!skills.length) {
       setStatus('error')
-      setMessage('Upload a CV or add comma-separated skills before live job search.')
+      setMessage('Complete your profile skills or upload a CV before live job search.')
       return
     }
 
-    const query = profile.targetRole || skills.slice(0, 3).join(' ')
+    const targetRoles = usefulPreferenceTerms(profile.targetRoles).length ? usefulPreferenceTerms(profile.targetRoles) : [profile.targetRole]
+    const query = targetRoles[0] || skills.slice(0, 3).join(' ')
+    const experienceYears = Math.max(Number(profile.experienceYears) || 0, Number(activeCv.totalYearsExperience) || 0)
     const params = new URLSearchParams({
       query,
-      location: profile.location || 'Remote',
+      location: profileSearchLocation(profile),
       skills: skills.join(','),
-      experienceYears: String(activeCv.totalYearsExperience || 0),
+      targetRoles: targetRoles.join(','),
+      mustHaveSkills: usefulPreferenceTerms(profile.mustHaveSkills).join(','),
+      avoidKeywords: usefulPreferenceTerms(profile.avoidKeywords).join(','),
+      preferredCountries: usefulPreferenceTerms(profile.preferredCountries).join(','),
+      preferredCities: usefulPreferenceTerms(profile.preferredCities).join(','),
+      remotePreference: normaliseRemotePreference(profile.remotePreference),
+      minimumSalary: String(profile.minimumSalary || profile.salaryMin || 0),
+      experienceYears: String(experienceYears),
       limit: '40',
     })
 
@@ -699,6 +731,354 @@ function useLiveJobSearch() {
   }
 
   return { status, message, runLiveSearch }
+}
+
+const remotePreferenceOptions: Array<{ value: RemotePreference; label: string; detail: string }> = [
+  { value: 'remote', label: 'Remote', detail: 'Only remote-first roles.' },
+  { value: 'hybrid', label: 'Hybrid', detail: 'Remote or hybrid roles.' },
+  { value: 'onsite', label: 'On-site', detail: 'Location-matched office roles.' },
+  { value: 'any', label: 'Any', detail: 'Keep all work modes open.' },
+]
+
+function ProfilePage() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const profile = useJobmatchStore((state) => state.profile)
+  const updateProfile = useJobmatchStore((state) => state.updateProfile)
+  const from = (location.state as { from?: string } | null)?.from
+  const [targetRoles, setTargetRoles] = useState(joinPreferenceText(profile.targetRoles))
+  const [mustHaveSkills, setMustHaveSkills] = useState(joinPreferenceText(profile.mustHaveSkills))
+  const [avoidKeywords, setAvoidKeywords] = useState(joinPreferenceText(profile.avoidKeywords))
+  const [preferredCountries, setPreferredCountries] = useState(profile.preferredCountries.length ? profile.preferredCountries : ['Remote'])
+  const [preferredCities, setPreferredCities] = useState(profile.preferredCities.length ? profile.preferredCities : ['Remote'])
+  const [selectedCountry, setSelectedCountry] = useState(preferredCountries[0] || 'Remote')
+  const [selectedCity, setSelectedCity] = useState(preferredCities[0] || 'Remote')
+  const [remotePreference, setRemotePreference] = useState<RemotePreference>(normaliseRemotePreference(profile.remotePreference))
+  const [minimumSalary, setMinimumSalary] = useState(profile.minimumSalary || profile.salaryMin || 0)
+  const [experienceYears, setExperienceYears] = useState(profile.experienceYears || 0)
+  const [goodJobExamples, setGoodJobExamples] = useState(joinPreferenceText(profile.goodJobExamples))
+  const [badJobExamples, setBadJobExamples] = useState(joinPreferenceText(profile.badJobExamples))
+  const [isMarkedComplete, setIsMarkedComplete] = useState(Boolean(profile.profileCompletedAt))
+  const [message, setMessage] = useState('')
+  const selectedCities = getCitiesForCountry(selectedCountry)
+  const completion = getProfileCompletion(profile)
+
+  useEffect(() => {
+    setTargetRoles(joinPreferenceText(profile.targetRoles))
+    setMustHaveSkills(joinPreferenceText(profile.mustHaveSkills))
+    setAvoidKeywords(joinPreferenceText(profile.avoidKeywords))
+    setPreferredCountries(profile.preferredCountries.length ? profile.preferredCountries : ['Remote'])
+    setPreferredCities(profile.preferredCities.length ? profile.preferredCities : ['Remote'])
+    setRemotePreference(normaliseRemotePreference(profile.remotePreference))
+    setMinimumSalary(profile.minimumSalary || profile.salaryMin || 0)
+    setExperienceYears(profile.experienceYears || 0)
+    setGoodJobExamples(joinPreferenceText(profile.goodJobExamples))
+    setBadJobExamples(joinPreferenceText(profile.badJobExamples))
+    setIsMarkedComplete(Boolean(profile.profileCompletedAt))
+  }, [profile])
+
+  useEffect(() => {
+    setSelectedCity(getCitiesForCountry(selectedCountry)[0] || 'Any city')
+  }, [selectedCountry])
+
+  const addPreferredLocation = () => {
+    const country = selectedCountry || 'Remote'
+    const city = country === 'Remote' ? 'Remote' : selectedCity || 'Any city'
+    if (country === 'Remote') {
+      setPreferredCountries(['Remote'])
+      setPreferredCities(['Remote'])
+      return
+    }
+
+    const next = [...preferredLocationPairs(preferredCountries, preferredCities), { country, city }]
+      .filter((place) => place.country !== 'Remote')
+      .filter((place, index, list) => list.findIndex((item) => item.country === place.country && item.city === place.city) === index)
+      .slice(0, 8)
+    setPreferredCountries(next.map((place) => place.country))
+    setPreferredCities(next.map((place) => place.city))
+  }
+
+  const removePreferredLocation = (index: number) => {
+    const next = preferredLocationPairs(preferredCountries, preferredCities).filter((_, placeIndex) => placeIndex !== index)
+    setPreferredCountries(next.length ? next.map((place) => place.country) : ['Remote'])
+    setPreferredCities(next.length ? next.map((place) => place.city) : ['Remote'])
+  }
+
+  const buildPatch = (completedAt: string | null): Partial<UserProfile> => {
+    const nextTargetRoles = splitPreferenceText(targetRoles, 10)
+    const nextMustHaveSkills = splitPreferenceText(mustHaveSkills, 30)
+    const nextAvoidKeywords = splitPreferenceText(avoidKeywords, 30)
+    const nextGoodExamples = splitPreferenceText(goodJobExamples, 12)
+    const nextBadExamples = splitPreferenceText(badJobExamples, 12)
+    const salary = Math.max(0, Math.round(Number(minimumSalary) || 0))
+    const years = clampExperienceYears(experienceYears)
+    const pairs = preferredLocationPairs(preferredCountries, preferredCities)
+    const primaryLocation = pairs[0] ? formatLocationPair(pairs[0]) : 'Remote'
+
+    return {
+      targetRole: nextTargetRoles[0] || '',
+      targetRoles: nextTargetRoles,
+      mustHaveSkills: nextMustHaveSkills,
+      avoidKeywords: nextAvoidKeywords,
+      preferredCountries,
+      preferredCities,
+      location: primaryLocation,
+      remotePreference,
+      preferredRemote: remotePreference === 'remote' || remotePreference === 'any',
+      minimumSalary: salary,
+      salaryMin: salary,
+      salaryMax: Math.max(Number(profile.salaryMax) || 0, salary),
+      experienceYears: years,
+      goodJobExamples: nextGoodExamples,
+      badJobExamples: nextBadExamples,
+      profileCompletedAt: completedAt,
+    }
+  }
+
+  const saveProfile = () => {
+    const completedAt = isMarkedComplete ? profile.profileCompletedAt || new Date().toISOString() : null
+    const patch = buildPatch(completedAt)
+    const nextProfile = { ...profile, ...patch }
+    const nextCompletion = getProfileCompletion(nextProfile)
+
+    updateProfile(patch)
+    setMessage(
+      nextCompletion.isComplete
+        ? 'Profile saved. Any filled profile fields will guide search; empty fields will fall back to your CV.'
+        : 'Profile saved. Check the completed box when you want to unlock the workspace.',
+    )
+    if (nextCompletion.isComplete && from && from !== '/profile') {
+      setTimeout(() => navigate(from, { replace: true }), 150)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <section className="panel overflow-hidden">
+        <div className="grid gap-5 bg-gradient-to-br from-primary/18 via-panel to-panel p-5 lg:grid-cols-[1fr_360px] lg:p-6">
+          <div>
+            <div className="mb-3 inline-flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary">
+              <Target size={16} />
+              Matching profile
+            </div>
+            <h2 className="text-2xl font-bold text-ink md:text-3xl">Profile</h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">
+              Fill only what you want. Checked completion unlocks the workspace; empty fields fall back to your uploaded CV.
+            </p>
+          </div>
+          <div className="rounded-md border border-line bg-bg/65 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold text-ink">{completion.isComplete ? 'Ready for live search' : 'Profile required'}</p>
+              <span className={`rounded-md px-2 py-1 text-xs font-semibold ${completion.isComplete ? 'bg-success/15 text-success' : 'bg-warning/15 text-warning'}`}>
+                {completion.isComplete ? 'Complete' : 'Checkbox needed'}
+              </span>
+            </div>
+            {completion.isComplete ? (
+              <p className="mt-3 text-sm leading-6 text-muted">
+                Search uses profile fields when present, then falls back to resume skills.
+              </p>
+            ) : (
+              <p className="mt-3 text-sm leading-6 text-muted">
+                Check the completion box below and save. The fields themselves are optional.
+              </p>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="panel p-5">
+          <div className="mb-5 flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-md bg-primary/15 text-primary">
+              <BriefcaseBusiness size={21} />
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold text-ink">Role and skill target</h2>
+              <p className="text-sm text-muted">These fields decide what live jobs are allowed into your feed.</p>
+            </div>
+          </div>
+          <div className="grid gap-4">
+            <label className="field-label">
+              Target roles
+              <textarea
+                className="control mt-2 min-h-[84px] w-full rounded-md p-3 text-sm normal-case"
+                value={targetRoles}
+                onChange={(event) => setTargetRoles(event.target.value)}
+                placeholder="Frontend Engineer, React Developer, Full Stack Engineer"
+              />
+            </label>
+            <label className="field-label">
+              Must-have skills
+              <textarea
+                className="control mt-2 min-h-[96px] w-full rounded-md p-3 text-sm normal-case"
+                value={mustHaveSkills}
+                onChange={(event) => setMustHaveSkills(event.target.value)}
+                placeholder="React, TypeScript, Node.js, REST APIs"
+              />
+            </label>
+            <label className="field-label">
+              Avoid roles or keywords
+              <textarea
+                className="control mt-2 min-h-[84px] w-full rounded-md p-3 text-sm normal-case"
+                value={avoidKeywords}
+                onChange={(event) => setAvoidKeywords(event.target.value)}
+                placeholder="Data entry, virtual assistant, sales, recruiter"
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="panel p-5">
+          <div className="mb-5 flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-md bg-success/15 text-success">
+              <MapPin size={21} />
+            </div>
+            <div>
+              <h2 className="text-xl font-semibold text-ink">Location and package</h2>
+              <p className="text-sm text-muted">Location and salary filters are applied before match scoring.</p>
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="field-label">
+              Country
+              <PrettySelect
+                className="mt-2 normal-case"
+                value={selectedCountry}
+                options={countryCityOptions.map((option) => ({ value: option.country, label: option.country }))}
+                onChange={setSelectedCountry}
+                ariaLabel="Preferred country"
+                icon={<Globe2 size={16} />}
+              />
+            </label>
+            <label className="field-label">
+              City
+              <PrettySelect
+                className="mt-2 normal-case"
+                value={selectedCity}
+                options={selectedCities.map((city) => ({ value: city, label: city }))}
+                onChange={setSelectedCity}
+                ariaLabel="Preferred city"
+                icon={<MapPin size={16} />}
+              />
+            </label>
+            <button type="button" className="secondary-button sm:col-span-2" onClick={addPreferredLocation}>
+              <Plus size={16} />
+              Add location
+            </button>
+            <div className="sm:col-span-2">
+              <div className="flex flex-wrap gap-2">
+                {preferredLocationPairs(preferredCountries, preferredCities).map((place, index) => (
+                  <span key={`${place.country}-${place.city}-${index}`} className="inline-flex items-center gap-2 rounded-md border border-line bg-bg/70 px-3 py-2 text-sm text-ink">
+                    {formatLocationPair(place)}
+                    <button
+                      type="button"
+                      className="text-muted transition hover:text-danger"
+                      onClick={() => removePreferredLocation(index)}
+                      aria-label={`Remove ${formatLocationPair(place)}`}
+                    >
+                      <X size={14} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+            <label className="field-label">
+              Remote preference
+              <PrettySelect<RemotePreference>
+                className="mt-2 normal-case"
+                value={remotePreference}
+                options={remotePreferenceOptions}
+                onChange={setRemotePreference}
+                ariaLabel="Remote preference"
+                icon={<Radio size={16} />}
+              />
+            </label>
+            <label className="field-label">
+              Minimum salary
+              <span className="field-shell normal-case">
+                <span className="text-sm font-bold text-muted">$</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={1000}
+                  value={minimumSalary}
+                  onChange={(event) => setMinimumSalary(Math.max(0, Number(event.target.value) || 0))}
+                  placeholder="60000"
+                />
+              </span>
+            </label>
+            <label className="field-label sm:col-span-2">
+              Experience years
+              <span className="field-shell normal-case">
+                <Gauge size={16} className="text-muted" />
+                <input
+                  type="number"
+                  min={0}
+                  max={60}
+                  step={1}
+                  value={experienceYears}
+                  onChange={(event) => setExperienceYears(clampExperienceYears(event.target.value))}
+                  placeholder="5"
+                />
+              </span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel p-5">
+        <div className="mb-5 flex items-center gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-md bg-warning/15 text-warning">
+            <CheckCircle2 size={21} />
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold text-ink">Examples</h2>
+            <p className="text-sm text-muted">Good and bad examples sharpen the final relevance filter.</p>
+          </div>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <label className="field-label">
+            Good job examples
+            <textarea
+              className="control mt-2 min-h-[110px] w-full rounded-md p-3 text-sm normal-case"
+              value={goodJobExamples}
+              onChange={(event) => setGoodJobExamples(event.target.value)}
+              placeholder="Senior React Engineer at SaaS company, Frontend Platform Engineer"
+            />
+          </label>
+          <label className="field-label">
+            Bad job examples
+            <textarea
+              className="control mt-2 min-h-[110px] w-full rounded-md p-3 text-sm normal-case"
+              value={badJobExamples}
+              onChange={(event) => setBadJobExamples(event.target.value)}
+              placeholder="Data Entry Assistant, Sales Representative, Recruiter"
+            />
+          </label>
+        </div>
+        <div className="mt-5 flex flex-wrap items-center gap-3">
+          <label className="flex min-h-11 items-center gap-3 rounded-md border border-line bg-bg/70 px-3 text-sm font-semibold text-ink transition hover:border-primary/60">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-primary"
+              checked={isMarkedComplete}
+              onChange={(event) => setIsMarkedComplete(event.target.checked)}
+            />
+            Profile is completed
+          </label>
+          <button type="button" className="primary-button h-11" onClick={saveProfile}>
+            <Save size={16} />
+            Save profile
+          </button>
+          {message ? (
+            <p className={`text-sm ${isMarkedComplete ? 'text-success' : 'text-warning'}`}>
+              {message}
+            </p>
+          ) : null}
+        </div>
+      </section>
+    </div>
+  )
 }
 
 function DashboardPage() {
@@ -782,8 +1162,7 @@ function DashboardPage() {
             ))}
           </div>
           <p className="mt-4 text-xs leading-5 text-muted">
-            Targeting {profile.targetRole} roles from {profile.location}, with remote preference{' '}
-            {profile.preferredRemote ? 'enabled' : 'disabled'}.
+            Targeting {(profile.targetRoles?.[0] || profile.targetRole)} roles from {profileSearchLocation(profile)}, with {profile.remotePreference} preference.
             {lastLiveSearchAt ? ` Last live search: ${formatDistanceToNowStrict(new Date(lastLiveSearchAt), { addSuffix: true })}.` : ''}
           </p>
         </div>
@@ -1050,10 +1429,16 @@ function CvHubPage() {
 
   const saveProfileSignal = () => {
     const nextExperienceYears = clampExperienceYears(experienceYears)
+    const nextTargetRole = targetRole.trim() || profile.targetRole
     updateProfile({
-      targetRole: targetRole.trim() || profile.targetRole,
+      targetRole: nextTargetRole,
+      targetRoles: [nextTargetRole],
       location: selectedLocation,
+      preferredCountries: [selectedCountry],
+      preferredCities: [selectedCity],
+      remotePreference: preferredRemote ? 'remote' : 'onsite',
       preferredRemote,
+      experienceYears: nextExperienceYears,
     })
     setExperienceYears(nextExperienceYears)
     setActiveExperience(nextExperienceYears)
@@ -1159,7 +1544,7 @@ function CvHubPage() {
             <StepPanel
               step="03"
               title="Preferences"
-              text={`Remote ${profile.preferredRemote ? 'enabled' : 'disabled'}, salary ${formatCurrency(profile.salaryMin)}-${formatCurrency(profile.salaryMax)}.`}
+              text={`${profile.remotePreference} in ${profileSearchLocation(profile)}, salary from ${formatCurrency(profile.minimumSalary || profile.salaryMin)}.`}
               icon={<CheckCircle2 size={18} />}
             />
           </div>
@@ -1443,6 +1828,18 @@ function parseLocationSelection(location: string) {
   if (cityMatch) return { country: cityMatch.country, city: raw }
 
   return { country: 'Remote', city: 'Remote' }
+}
+
+function preferredLocationPairs(countries: string[], cities: string[]) {
+  const length = Math.max(countries.length, cities.length)
+  return Array.from({ length }, (_, index) => ({
+    country: countries[index] || countries[0] || 'Remote',
+    city: cities[index] || cities[0] || 'Remote',
+  })).filter((place) => place.country && place.city)
+}
+
+function formatLocationPair(place: { country: string; city: string }) {
+  return formatSelectedLocation(place.country, place.city)
 }
 
 function getCitiesForCountry(country: string) {
