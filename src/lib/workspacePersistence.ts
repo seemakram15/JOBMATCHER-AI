@@ -261,6 +261,7 @@ export async function recordSearch(query: string, resultCount: number) {
 export async function updateUserProfile(profile: UserProfile) {
   const client = requireSupabase()
   const safe = sanitiseUserProfile(profile)
+  await assertCurrentUser(safe.id)
   const { error } = await client
     .from('users')
     .update({
@@ -292,6 +293,7 @@ export async function updateUserProfile(profile: UserProfile) {
 export async function saveParsedCv(userId: string, cv: CvProfile) {
   const client = requireSupabase()
   const safe = sanitiseCvProfile(cv)
+  await assertCurrentUser(userId)
   await client.from('cvs').update({ is_active: false }).eq('user_id', userId)
 
   const { error: cvError } = await client.from('cvs').upsert({
@@ -316,6 +318,7 @@ export async function ensureManualCv(userId: string, cv: CvProfile) {
   if (!cv.id) return
   const client = requireSupabase()
   const safe = sanitiseCvProfile(cv)
+  await assertCurrentUser(userId)
   const { error } = await client.from('cvs').upsert({
     id: safe.id,
     user_id: userId,
@@ -333,6 +336,7 @@ export async function ensureManualCv(userId: string, cv: CvProfile) {
 
 export async function activateCvInDb(userId: string, cvId: string) {
   const client = requireSupabase()
+  await assertCurrentUser(userId)
   await client.from('cvs').update({ is_active: false }).eq('user_id', userId)
   const { error } = await client.from('cvs').update({ is_active: true }).eq('id', cvId).eq('user_id', userId)
   if (error) throw error
@@ -341,8 +345,7 @@ export async function activateCvInDb(userId: string, cvId: string) {
 export async function deleteCvForUser(userId: string, cvId: string) {
   if (!userId || !cvId) return
   const client = requireSupabase()
-  const { data } = await client.auth.getUser()
-  if (data.user?.id !== userId) throw new Error('Cannot delete CV data for another user.')
+  await assertCurrentUser(userId)
 
   const { error: scoreError } = await client
     .from('user_job_scores')
@@ -358,8 +361,7 @@ export async function deleteCvForUser(userId: string, cvId: string) {
 export async function clearCvDataForUser(userId: string) {
   if (!userId) return
   const client = requireSupabase()
-  const { data } = await client.auth.getUser()
-  if (data.user?.id !== userId) throw new Error('Cannot clear CV data for another user.')
+  await assertCurrentUser(userId)
 
   const { error: scoreError } = await client.from('user_job_scores').delete().eq('user_id', userId)
   if (scoreError) throw scoreError
@@ -437,47 +439,15 @@ export async function replaceCvExperience(cvId: string, experience: CvExperience
 
 export async function persistLiveJobs(jobs: Job[]) {
   if (!jobs.length) return
-  const client = requireSupabase()
   const safeJobs = jobs.map(sanitiseJob).filter((job) => job.title && job.applyUrl !== '#')
   if (!safeJobs.length) return
-  const { error } = await client.from('jobs').upsert(
-    safeJobs.map((job) => ({
-      id: job.id,
-      title: job.title,
-      company: job.company,
-      company_logo: job.companyLogo,
-      location: job.location,
-      country: job.country,
-      city: job.city,
-      is_remote: job.isRemote,
-      work_mode: job.workMode,
-      description: job.description,
-      description_html: job.descriptionHtml,
-      salary_min: job.salaryMin,
-      salary_max: job.salaryMax,
-      salary_currency: job.salaryCurrency,
-      job_type: job.jobType,
-      experience_min: job.experienceMin,
-      experience_max: job.experienceMax,
-      level: job.level,
-      skills_required: job.skillsRequired,
-      apply_url: job.applyUrl,
-      source_url: job.applyUrl,
-      source_platform: job.sourcePlatform,
-      external_id: `${job.sourcePlatform}:${job.applyUrl}`,
-      dedup_hash: job.id,
-      posted_at: job.postedAt,
-      fetched_at: job.fetchedAt,
-      last_seen_at: new Date().toISOString(),
-    })),
-    { onConflict: 'id', ignoreDuplicates: true },
-  )
-  if (error) throw error
+  await authenticatedJsonFetch('/api/job-cache', { jobs: safeJobs })
 }
 
 export async function persistUserJobScores(userId: string, cvId: string, scoredJobs: ScoredJob[]) {
   if (!scoredJobs.length) return
   const client = requireSupabase()
+  await assertCurrentUser(userId)
   const { error } = await client.from('user_job_scores').upsert(
     scoredJobs.map(({ job, match }) => ({
       user_id: userId,
@@ -506,6 +476,7 @@ export async function persistApplication(input: {
 }) {
   const client = requireSupabase()
   const { application, userId, previousStatus = null } = input
+  await assertCurrentUser(userId)
   const safe = sanitiseApplication(application)
   const { error } = await client.from('applications').upsert({
     id: safe.id,
@@ -715,4 +686,33 @@ function normaliseDateForDb(value: string) {
 function stringMeta(user: User, key: string) {
   const value = user.user_metadata?.[key]
   return typeof value === 'string' ? value : ''
+}
+
+async function assertCurrentUser(expectedUserId: string) {
+  const client = requireSupabase()
+  const { data, error } = await client.auth.getUser()
+  if (error || !data.user) throw new Error('You must be signed in to save workspace data.')
+  if (data.user.id !== expectedUserId) throw new Error('Cannot save workspace data for another user.')
+}
+
+async function authenticatedJsonFetch(path: string, payload: unknown) {
+  const client = requireSupabase()
+  const { data, error } = await client.auth.getSession()
+  if (error) throw error
+  const token = data.session?.access_token
+  if (!token) throw new Error('You must be signed in to save workspace data.')
+
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
+    throw new Error(body?.error?.message || 'Workspace cache write failed.')
+  }
 }

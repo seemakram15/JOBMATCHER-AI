@@ -88,26 +88,7 @@ interface JobmatchState {
 let authListenerStarted = false
 let recoveryHandled = false
 
-type WorkspaceCache = Pick<
-  JobmatchState,
-  | 'userId'
-  | 'profile'
-  | 'cvs'
-  | 'jobs'
-  | 'applications'
-  | 'notifications'
-  | 'filters'
-  | 'selectedJobId'
-  | 'activeCv'
-  | 'savedJobIds'
-  | 'searchedJobsCount'
-  | 'lastLiveSearchAt'
-  | 'liveJobSources'
-> & {
-  cachedAt: string
-}
-
-const workspaceCacheKey = 'jobmatcher-workspace-cache-v1'
+const legacyWorkspaceCacheKey = 'jobmatcher-workspace-cache-v1'
 
 const timestamp = () => new Date().toISOString()
 
@@ -159,13 +140,7 @@ const emptyState = {
   impersonation: null,
 }
 
-const cachedWorkspace = readWorkspaceCache()
-
-const initialState = {
-  ...emptyState,
-  ...(cachedWorkspace ? omitCachedAt(cachedWorkspace) : {}),
-  workspaceStatus: cachedWorkspace ? ('ready' as WorkspaceStatus) : emptyState.workspaceStatus,
-}
+const initialState = emptyState
 
 export const useJobmatchStore = create<JobmatchState>((set) => ({
   ...initialState,
@@ -178,6 +153,7 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
       })
       return
     }
+    clearWorkspaceCache()
 
     // Handle password-reset (recovery) and signup-confirmation links from email.
     // Guard against React StrictMode double-invoking this in dev, which would
@@ -914,80 +890,12 @@ function createUuid() {
   )
 }
 
-function readWorkspaceCache(): WorkspaceCache | null {
-  if (typeof window === 'undefined') return null
-
-  try {
-    const raw = window.localStorage.getItem(workspaceCacheKey)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as Partial<WorkspaceCache>
-    if (!parsed.profile?.id && !parsed.userId) return null
-
-    return {
-      userId: parsed.userId || parsed.profile?.id || null,
-      profile: parsed.profile || createEmptyProfile(),
-      cvs: Array.isArray(parsed.cvs) ? parsed.cvs : [],
-      jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
-      applications: Array.isArray(parsed.applications) ? parsed.applications : [],
-      notifications: Array.isArray(parsed.notifications) ? parsed.notifications : [],
-      filters: parsed.filters || defaultFilters,
-      selectedJobId: parsed.selectedJobId || parsed.jobs?.[0]?.id || '',
-      activeCv: parsed.activeCv || emptyCv,
-      savedJobIds: Array.isArray(parsed.savedJobIds) ? parsed.savedJobIds : [],
-      searchedJobsCount: Number(parsed.searchedJobsCount) || parsed.jobs?.length || 0,
-      lastLiveSearchAt: parsed.lastLiveSearchAt || null,
-      liveJobSources: Array.isArray(parsed.liveJobSources) ? parsed.liveJobSources : [],
-      cachedAt: parsed.cachedAt || timestamp(),
-    }
-  } catch {
-    return null
-  }
-}
-
-function writeWorkspaceCache(state: JobmatchState) {
-  if (typeof window === 'undefined' || !state.profile.id) return
-
-  const cache: WorkspaceCache = {
-    userId: state.userId || state.profile.id,
-    profile: state.profile,
-    cvs: state.cvs,
-    jobs: state.jobs,
-    applications: state.applications,
-    notifications: state.notifications,
-    filters: state.filters,
-    selectedJobId: state.selectedJobId,
-    activeCv: state.activeCv,
-    savedJobIds: state.savedJobIds,
-    searchedJobsCount: state.searchedJobsCount,
-    lastLiveSearchAt: state.lastLiveSearchAt,
-    liveJobSources: state.liveJobSources,
-    cachedAt: timestamp(),
-  }
-
-  try {
-    window.localStorage.setItem(workspaceCacheKey, JSON.stringify(cache))
-  } catch {
-    // Storage can fail in private mode or when quota is exceeded; the live Supabase path remains authoritative.
-  }
-}
-
 function clearWorkspaceCache() {
   if (typeof window === 'undefined') return
 
   try {
-    window.localStorage.removeItem(workspaceCacheKey)
+    window.localStorage.removeItem(legacyWorkspaceCacheKey)
   } catch {
     // Ignore storage cleanup failures.
   }
 }
-
-function omitCachedAt(cache: WorkspaceCache): Omit<WorkspaceCache, 'cachedAt'> {
-  const { cachedAt, ...state } = cache
-  void cachedAt
-  return state
-}
-
-useJobmatchStore.subscribe((state) => {
-  if (state.authStatus === 'authenticated' && state.profile.id) writeWorkspaceCache(state)
-  if (state.authStatus === 'unauthenticated') clearWorkspaceCache()
-})
