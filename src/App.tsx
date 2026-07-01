@@ -102,7 +102,23 @@ import { defaultFilters } from './lib/defaults'
 import { recordSearch } from './lib/workspacePersistence'
 import { requireSupabase } from './lib/supabase'
 import { useJobmatchStore } from './store/useJobmatchStore'
-import type { Application, CvProfile, CvSkill, Job, JobFilters, LiveJobSourceResult, ParsedCvPayload, RemotePreference, ScoredJob, UserProfile, UserRole } from './types'
+import type {
+  Application,
+  ApplicationStatus,
+  CvProfile,
+  CvSkill,
+  ExperienceLevel,
+  Job,
+  JobFilters,
+  JobType,
+  LiveJobSourceResult,
+  ParsedCvPayload,
+  RemotePreference,
+  ScoredJob,
+  UserProfile,
+  UserRole,
+  WorkMode,
+} from './types'
 
 type Accent = 'primary' | 'cyan' | 'success' | 'warning' | 'violet' | 'pink' | 'danger' | 'muted'
 
@@ -3381,6 +3397,8 @@ function TrackerPage() {
   const view = useWorkspaceView()
   const { applications, profile, activeCv, jobs } = view
   const updateApplicationStatus = useJobmatchStore((state) => state.updateApplicationStatus)
+  const addCustomJobRecord = useJobmatchStore((state) => state.addCustomJobRecord)
+  const [showCustomJobForm, setShowCustomJobForm] = useState(false)
   const savedJobIds = useMemo(
     () => applications.filter((a) => a.status === 'saved').map((a) => a.jobId),
     [applications],
@@ -3396,10 +3414,18 @@ function TrackerPage() {
             {applications.length} {applications.length === 1 ? 'application' : 'applications'}
           </h2>
         </div>
-        <button className="secondary-button" onClick={() => downloadApplications(applications, scoredJobs)}>
-          <ClipboardList size={16} />
-          Export CSV
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {!view.readOnly ? (
+            <button className="primary-button" onClick={() => setShowCustomJobForm(true)}>
+              <Plus size={16} />
+              Add custom job record
+            </button>
+          ) : null}
+          <button className="secondary-button" onClick={() => downloadApplications(applications, scoredJobs)}>
+            <ClipboardList size={16} />
+            Export CSV
+          </button>
+        </div>
       </div>
       <KanbanBoard
         applications={applications}
@@ -3407,8 +3433,419 @@ function TrackerPage() {
         onMove={(applicationId, status) => updateApplicationStatus(applicationId, status)}
         readOnly={view.readOnly}
       />
+      {showCustomJobForm && !view.readOnly ? (
+        <CustomJobRecordModal
+          profile={profile}
+          activeCv={activeCv}
+          onClose={() => setShowCustomJobForm(false)}
+          onSave={(input) => {
+            addCustomJobRecord(input)
+            setShowCustomJobForm(false)
+          }}
+        />
+      ) : null}
     </div>
   )
+}
+
+const customJobStatusOptions: Array<{ value: ApplicationStatus; label: string }> = [
+  { value: 'saved', label: 'Saved' },
+  { value: 'applied', label: 'Applied' },
+  { value: 'interviewing', label: 'Interviewing' },
+  { value: 'offer', label: 'Offer' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'withdrawn', label: 'Withdrawn' },
+]
+
+const customJobWorkModeOptions: Array<{ value: WorkMode; label: string }> = [
+  { value: 'remote', label: 'Remote' },
+  { value: 'hybrid', label: 'Hybrid' },
+  { value: 'onsite', label: 'On-site' },
+]
+
+const customJobTypeOptions: Array<{ value: JobType; label: string }> = [
+  { value: 'full_time', label: 'Full-time' },
+  { value: 'part_time', label: 'Part-time' },
+  { value: 'contract', label: 'Contract' },
+  { value: 'freelance', label: 'Freelance' },
+  { value: 'internship', label: 'Internship' },
+]
+
+const customJobLevelOptions: Array<{ value: ExperienceLevel; label: string }> = [
+  { value: 'entry', label: 'Entry' },
+  { value: 'mid', label: 'Mid' },
+  { value: 'senior', label: 'Senior' },
+  { value: 'lead', label: 'Lead' },
+  { value: 'executive', label: 'Executive' },
+]
+
+interface CustomJobRecordFormState {
+  title: string
+  company: string
+  location: string
+  country: string
+  city: string
+  workMode: WorkMode
+  jobType: JobType
+  level: ExperienceLevel
+  status: ApplicationStatus
+  applyUrl: string
+  description: string
+  notes: string
+  skillsText: string
+  salaryMin: string
+  salaryMax: string
+  salaryCurrency: string
+  experienceMin: string
+  experienceMax: string
+  reminderDate: string
+}
+
+function CustomJobRecordModal({
+  profile,
+  activeCv,
+  onClose,
+  onSave,
+}: {
+  profile: UserProfile
+  activeCv: CvProfile
+  onClose: () => void
+  onSave: (input: {
+    title: string
+    company: string
+    location: string
+    country: string
+    city: string
+    workMode: WorkMode
+    jobType: JobType
+    level: ExperienceLevel
+    status: ApplicationStatus
+    applyUrl: string
+    description: string
+    notes: string
+    skills: string[]
+    salaryMin: number
+    salaryMax: number
+    salaryCurrency: string
+    experienceMin: number
+    experienceMax: number
+    reminderDate?: string
+  }) => void
+}) {
+  const defaultSkills = [
+    ...profile.mustHaveSkills,
+    ...activeCv.skills
+      .slice()
+      .sort((a, b) => (b.skillRank || 0) - (a.skillRank || 0))
+      .map((skill) => skill.skillName),
+  ]
+    .filter(Boolean)
+    .slice(0, 8)
+
+  const [form, setForm] = useState<CustomJobRecordFormState>({
+    title: profile.targetRoles[0] || profile.targetRole || '',
+    company: '',
+    location: profile.location || 'Remote',
+    country: profile.preferredCountries[0] || 'Remote',
+    city: profile.preferredCities[0] || 'Remote',
+    workMode: profile.remotePreference === 'hybrid' || profile.remotePreference === 'onsite' ? profile.remotePreference : 'remote',
+    jobType: 'full_time',
+    level: profile.experienceYears >= 8 ? 'lead' : profile.experienceYears >= 4 ? 'senior' : profile.experienceYears >= 1 ? 'mid' : 'entry',
+    status: 'saved',
+    applyUrl: '',
+    description: '',
+    notes: '',
+    skillsText: Array.from(new Set(defaultSkills)).join(', '),
+    salaryMin: profile.minimumSalary ? String(profile.minimumSalary) : '',
+    salaryMax: '',
+    salaryCurrency: profile.currency || 'USD',
+    experienceMin: profile.experienceYears ? String(profile.experienceYears) : '',
+    experienceMax: '',
+    reminderDate: '',
+  })
+  const [error, setError] = useState('')
+
+  const updateField = <K extends keyof CustomJobRecordFormState>(key: K, value: CustomJobRecordFormState[K]) => {
+    setForm((current) => ({ ...current, [key]: value }))
+  }
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault()
+    const title = form.title.trim()
+    const company = form.company.trim()
+    if (!title || !company) {
+      setError('Job title and company are required.')
+      return
+    }
+
+    const applyUrl = form.applyUrl.trim()
+    if (applyUrl && !/^https?:\/\//i.test(applyUrl)) {
+      setError('Job link must start with http:// or https://.')
+      return
+    }
+
+    onSave({
+      title,
+      company,
+      location: form.location.trim() || [form.city, form.country].filter(Boolean).join(', ') || 'Remote',
+      country: form.country.trim() || 'Remote',
+      city: form.city.trim() || 'Remote',
+      workMode: form.workMode,
+      jobType: form.jobType,
+      level: form.level,
+      status: form.status,
+      applyUrl,
+      description: form.description,
+      notes: form.notes,
+      skills: form.skillsText.split(',').map((skill) => skill.trim()).filter(Boolean),
+      salaryMin: clampPositiveInteger(form.salaryMin, 0, 2_000_000),
+      salaryMax: clampPositiveInteger(form.salaryMax, 0, 2_000_000),
+      salaryCurrency: form.salaryCurrency.trim().toUpperCase().slice(0, 3) || 'USD',
+      experienceMin: clampPositiveInteger(form.experienceMin, 0, 60),
+      experienceMax: clampPositiveInteger(form.experienceMax, 0, 60),
+      reminderDate: form.reminderDate || undefined,
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+      <section className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-line bg-panel shadow-soft">
+        <div className="flex items-start justify-between gap-4 border-b border-line p-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-warning">Custom job record</p>
+            <h2 className="mt-1 text-2xl font-bold text-ink">Add a job to your tracker</h2>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="Close custom job form" title="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        <form className="space-y-5 p-5" onSubmit={submit}>
+          {error ? (
+            <div className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm font-semibold text-danger">
+              {error}
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <CustomJobTextField
+              label="Job title"
+              value={form.title}
+              onChange={(value) => updateField('title', value)}
+              placeholder="Senior Frontend Engineer"
+              required
+            />
+            <CustomJobTextField
+              label="Company"
+              value={form.company}
+              onChange={(value) => updateField('company', value)}
+              placeholder="Acme Cloud"
+              required
+            />
+            <CustomJobTextField
+              label="Location"
+              value={form.location}
+              onChange={(value) => updateField('location', value)}
+              placeholder="Remote, London, Dubai"
+            />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <CustomJobTextField
+                label="Country"
+                value={form.country}
+                onChange={(value) => updateField('country', value)}
+                placeholder="United States"
+              />
+              <CustomJobTextField
+                label="City"
+                value={form.city}
+                onChange={(value) => updateField('city', value)}
+                placeholder="New York"
+              />
+            </div>
+            <label className="field-label">
+              Status
+              <PrettySelect<ApplicationStatus>
+                className="mt-2 normal-case"
+                value={form.status}
+                options={customJobStatusOptions}
+                onChange={(value) => updateField('status', value)}
+                ariaLabel="Custom job status"
+              />
+            </label>
+            <label className="field-label">
+              Work mode
+              <PrettySelect<WorkMode>
+                className="mt-2 normal-case"
+                value={form.workMode}
+                options={customJobWorkModeOptions}
+                onChange={(value) => updateField('workMode', value)}
+                ariaLabel="Custom job work mode"
+              />
+            </label>
+            <label className="field-label">
+              Job type
+              <PrettySelect<JobType>
+                className="mt-2 normal-case"
+                value={form.jobType}
+                options={customJobTypeOptions}
+                onChange={(value) => updateField('jobType', value)}
+                ariaLabel="Custom job type"
+              />
+            </label>
+            <label className="field-label">
+              Level
+              <PrettySelect<ExperienceLevel>
+                className="mt-2 normal-case"
+                value={form.level}
+                options={customJobLevelOptions}
+                onChange={(value) => updateField('level', value)}
+                ariaLabel="Custom job level"
+              />
+            </label>
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-3">
+            <CustomJobNumberField label="Salary min" value={form.salaryMin} onChange={(value) => updateField('salaryMin', value)} placeholder="70000" />
+            <CustomJobNumberField label="Salary max" value={form.salaryMax} onChange={(value) => updateField('salaryMax', value)} placeholder="120000" />
+            <CustomJobTextField label="Currency" value={form.salaryCurrency} onChange={(value) => updateField('salaryCurrency', value.toUpperCase())} placeholder="USD" maxLength={3} />
+            <CustomJobNumberField label="Experience min" value={form.experienceMin} onChange={(value) => updateField('experienceMin', value)} placeholder="2" />
+            <CustomJobNumberField label="Experience max" value={form.experienceMax} onChange={(value) => updateField('experienceMax', value)} placeholder="6" />
+            <label className="field-label">
+              Reminder date
+              <span className="field-shell normal-case">
+                <CalendarDays size={16} className="text-muted" />
+                <input type="date" value={form.reminderDate} onChange={(event) => updateField('reminderDate', event.target.value)} />
+              </span>
+            </label>
+          </div>
+
+          <CustomJobTextField
+            label="Required skills"
+            value={form.skillsText}
+            onChange={(value) => updateField('skillsText', value)}
+            placeholder="React, TypeScript, AWS"
+          />
+          <CustomJobTextField
+            label="Job link"
+            value={form.applyUrl}
+            onChange={(value) => updateField('applyUrl', value)}
+            placeholder="https://company.com/careers/job"
+          />
+          <CustomJobTextarea
+            label="Job description"
+            value={form.description}
+            onChange={(value) => updateField('description', value)}
+            placeholder="Paste the job description or key responsibilities."
+          />
+          <CustomJobTextarea
+            label="Application notes"
+            value={form.notes}
+            onChange={(value) => updateField('notes', value)}
+            placeholder="Referral, recruiter name, next steps, salary notes..."
+          />
+
+          <div className="flex flex-col-reverse gap-3 border-t border-line pt-5 sm:flex-row sm:justify-end">
+            <button type="button" className="secondary-button h-11" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" className="primary-button h-11">
+              <Save size={16} />
+              Save custom job
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+function CustomJobTextField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  required = false,
+  maxLength = 180,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+  required?: boolean
+  maxLength?: number
+}) {
+  return (
+    <label className="field-label">
+      {label}
+      <span className="field-shell normal-case">
+        <input
+          required={required}
+          value={value}
+          maxLength={maxLength}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+        />
+      </span>
+    </label>
+  )
+}
+
+function CustomJobNumberField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+}) {
+  return (
+    <label className="field-label">
+      {label}
+      <span className="field-shell normal-case">
+        <input
+          type="number"
+          min="0"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+        />
+      </span>
+    </label>
+  )
+}
+
+function CustomJobTextarea({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder: string
+}) {
+  return (
+    <label className="field-label">
+      {label}
+      <textarea
+        className="control mt-2 min-h-28 w-full rounded-md px-3 py-3 text-sm normal-case outline-none"
+        value={value}
+        maxLength={4000}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+      />
+    </label>
+  )
+}
+
+function clampPositiveInteger(value: string, min: number, max: number) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return min
+  return Math.min(Math.max(Math.round(number), min), max)
 }
 
 const NOTIF_META: Record<string, { icon: typeof Bell; accent: Accent }> = {

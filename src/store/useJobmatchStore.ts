@@ -25,13 +25,16 @@ import type {
   CvExperience,
   CvProfile,
   CvSkill,
+  ExperienceLevel,
   ImpersonationState,
   Job,
   JobFilters,
+  JobType,
   LiveJobSourceResult,
   NotificationItem,
   ParsedCvPayload,
   UserProfile,
+  WorkMode,
 } from '../types'
 
 type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated' | 'error'
@@ -71,6 +74,7 @@ interface JobmatchState {
   toggleSave: (jobId: string) => void
   applyToJob: (jobId: string, notes?: string) => void
   updateApplicationStatus: (applicationId: string, status: ApplicationStatus) => void
+  addCustomJobRecord: (input: CustomJobRecordInput) => void
   markAllNotificationsRead: () => void
   activateCv: (cvId: string) => void
   deleteCv: (cvId: string) => void
@@ -83,6 +87,28 @@ interface JobmatchState {
   replaceActiveExperience: (experience: CvExperience[], totalYears: number) => void
   updateProfile: (profile: Partial<UserProfile>) => void
   setLiveJobs: (jobs: Job[], sources: LiveJobSourceResult[]) => void
+}
+
+interface CustomJobRecordInput {
+  title: string
+  company: string
+  location: string
+  country: string
+  city: string
+  workMode: WorkMode
+  jobType: JobType
+  level: ExperienceLevel
+  status: ApplicationStatus
+  applyUrl: string
+  description: string
+  notes: string
+  skills: string[]
+  salaryMin: number
+  salaryMax: number
+  salaryCurrency: string
+  experienceMin: number
+  experienceMax: number
+  reminderDate?: string
 }
 
 let authListenerStarted = false
@@ -427,6 +453,96 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
           status === 'saved'
             ? Array.from(new Set([...state.savedJobIds, nextApplication.jobId]))
             : state.savedJobIds.filter((id) => id !== nextApplication.jobId),
+      }
+    }),
+  addCustomJobRecord: (input) =>
+    set((state) => {
+      if (!state.profile.id) return state
+      const now = timestamp()
+      const jobId = createUuid()
+      const applicationId = createUuid()
+      const title = input.title.trim() || 'Custom job'
+      const company = input.company.trim() || 'Company'
+      const location = input.location.trim() || [input.city, input.country].filter(Boolean).join(', ') || 'Remote'
+      const country = input.country.trim() || (location.toLowerCase() === 'remote' ? 'Remote' : '')
+      const city = input.city.trim() || (location.toLowerCase() === 'remote' ? 'Remote' : '')
+      const cleanSkills = input.skills.map((skill) => skill.trim()).filter(Boolean).slice(0, 30)
+      const applyUrl = input.applyUrl.trim() || `https://www.google.com/search?q=${encodeURIComponent(`${title} ${company} job`)}`
+      const job: Job = {
+        id: jobId,
+        title,
+        company,
+        companyLogo: company.slice(0, 2).toUpperCase(),
+        location,
+        country: country || location,
+        city: city || location,
+        isRemote: input.workMode === 'remote',
+        workMode: input.workMode,
+        description: input.description.trim() || input.notes.trim() || `Manually added ${title} role at ${company}.`,
+        descriptionHtml: input.description.trim() || input.notes.trim() || `Manually added ${title} role at ${company}.`,
+        salaryMin: input.salaryMin || undefined,
+        salaryMax: input.salaryMax || undefined,
+        salaryCurrency: /^[A-Z]{3}$/.test(input.salaryCurrency) ? input.salaryCurrency : state.profile.currency || 'USD',
+        jobType: input.jobType,
+        experienceMin: input.experienceMin || undefined,
+        experienceMax: input.experienceMax || undefined,
+        level: input.level,
+        skillsRequired: cleanSkills.map((skill) => ({ skill, required: true, weight: 1 })),
+        applyUrl,
+        sourcePlatform: 'Manual',
+        postedAt: now,
+        fetchedAt: now,
+      }
+      const application: Application = {
+        id: applicationId,
+        jobId,
+        cvId: state.activeCv.id,
+        status: input.status,
+        notes: input.notes.trim(),
+        reminderDate: input.reminderDate || undefined,
+        appliedAt: input.status === 'applied' ? now : undefined,
+        createdAt: now,
+        lastUpdated: now,
+        history: [
+          {
+            oldStatus: null,
+            newStatus: input.status,
+            note: 'Custom job record added from tracker',
+            changedAt: now,
+          },
+        ],
+      }
+
+      void persistLiveJobs([job])
+        .then(() =>
+          persistApplication({
+            application,
+            userId: state.profile.id,
+            previousStatus: null,
+          }),
+        )
+        .catch((error) => addPersistenceWarning(error))
+
+      return {
+        jobs: [job, ...state.jobs.filter((item) => item.id !== job.id)],
+        applications: [application, ...state.applications],
+        savedJobIds:
+          input.status === 'saved'
+            ? Array.from(new Set([...state.savedJobIds, jobId]))
+            : state.savedJobIds.filter((id) => id !== jobId),
+        selectedJobId: jobId,
+        notifications: [
+          {
+            id: createUuid(),
+            type: 'system',
+            title: 'Custom job added',
+            message: `${title} at ${company} was added to your application tracker.`,
+            actionUrl: '/tracker',
+            isRead: false,
+            createdAt: now,
+          },
+          ...state.notifications,
+        ],
       }
     }),
   markAllNotificationsRead: () => {
