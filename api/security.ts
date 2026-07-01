@@ -98,6 +98,38 @@ export function sendError(res: ServerResponse, error: unknown, fallbackCode: str
   })
 }
 
+export function readJson(req: IncomingMessage, maxBytes = 16_384) {
+  return new Promise<unknown>((resolve, reject) => {
+    const contentType = req.headers['content-type'] || ''
+    if (!contentType.toLowerCase().includes('application/json')) {
+      reject(new ApiError(400, 'INVALID_CONTENT_TYPE', 'Expected application/json.'))
+      return
+    }
+
+    let body = ''
+    let finished = false
+    req.setEncoding('utf8')
+    req.on('data', (chunk: string) => {
+      if (finished) return
+      body += chunk
+      if (body.length > maxBytes) {
+        finished = true
+        reject(new ApiError(413, 'PAYLOAD_TOO_LARGE', 'Request body is too large.'))
+        req.destroy()
+      }
+    })
+    req.on('end', () => {
+      if (finished) return
+      try {
+        resolve(JSON.parse(body || '{}'))
+      } catch {
+        reject(new ApiError(400, 'INVALID_JSON', 'Request body must be valid JSON.'))
+      }
+    })
+    req.on('error', reject)
+  })
+}
+
 export function parseSearchParams<T extends z.ZodTypeAny>(req: IncomingMessage, schema: T): z.infer<T> {
   const url = new URL(req.url || '/', 'http://localhost')
   const raw = Object.fromEntries(url.searchParams.entries())
@@ -159,6 +191,11 @@ export interface AdminCaller {
   role: 'admin' | 'superadmin'
 }
 
+export interface AuthenticatedCaller {
+  id: string
+  email: string
+}
+
 function getBearerToken(req: IncomingMessage): string {
   const header = req.headers['authorization']
   const value = Array.isArray(header) ? header[0] : header
@@ -202,4 +239,19 @@ export async function requireAdminCaller(
   }
 
   return { id: profile.id as string, email: profile.email as string, role: profile.role as 'admin' | 'superadmin' }
+}
+
+export async function requireAuthenticatedCaller(req: IncomingMessage): Promise<AuthenticatedCaller> {
+  const token = getBearerToken(req)
+  const client = getServiceClient()
+
+  const { data, error } = await client.auth.getUser(token)
+  if (error || !data.user) {
+    throw new ApiError(401, 'UNAUTHENTICATED', 'Invalid or expired session.')
+  }
+
+  return {
+    id: data.user.id,
+    email: data.user.email || '',
+  }
 }

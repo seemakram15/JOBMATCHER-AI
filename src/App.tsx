@@ -100,6 +100,7 @@ import {
 import { filterAndSortJobs, scoreJobs } from './lib/scoring'
 import { defaultFilters } from './lib/defaults'
 import { recordSearch } from './lib/workspacePersistence'
+import { requireSupabase } from './lib/supabase'
 import { useJobmatchStore } from './store/useJobmatchStore'
 import type { Application, CvProfile, CvSkill, Job, JobFilters, LiveJobSourceResult, ParsedCvPayload, RemotePreference, ScoredJob, UserProfile, UserRole } from './types'
 
@@ -1851,7 +1852,14 @@ function useLiveJobSearch() {
     setMessage('Fetching precise matches from live sources...')
 
     try {
-      const response = await fetch(`/api/live-jobs?${params.toString()}`)
+      const client = requireSupabase()
+      const { data } = await client.auth.getSession()
+      const token = data.session?.access_token
+      if (!token) throw new Error('Please sign in again before running live job search.')
+
+      const response = await fetch(`/api/live-jobs?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
       const payload = (await response.json()) as {
         jobs?: Job[]
         sources?: LiveJobSourceResult[]
