@@ -37,7 +37,7 @@ export function setCors(req: IncomingMessage, res: ServerResponse, methods: stri
   setSecurityHeaders(res)
   const origin = req.headers.origin
   const allowedOrigins = getAllowedOrigins()
-  if (origin && allowedOrigins.has(origin)) {
+  if (origin && (allowedOrigins.has(origin) || origin.startsWith('chrome-extension://'))) {
     res.setHeader('Access-Control-Allow-Origin', origin)
     res.setHeader('Vary', 'Origin')
   }

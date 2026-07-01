@@ -30,6 +30,7 @@ export interface LiveJobSearchResult {
 interface SearchProfile {
   sourceQuery: string
   rawQuery: string
+  strictRoleQuery: string
   roleTerms: string[]
   skillTerms: string[]
   mustHaveSkillTerms: string[]
@@ -44,7 +45,29 @@ interface SearchProfile {
   experienceYears?: number
 }
 
+interface SerpOrganicResult {
+  title?: string
+  link?: string
+  snippet?: string
+  source?: string
+  displayed_link?: string
+  rich_snippet?: {
+    top?: {
+      extensions?: string[]
+      detected_extensions?: Record<string, unknown>
+    }
+  }
+}
+
+interface PlatformSearchTarget {
+  name: string
+  siteQuery: string
+  resultLimit?: number
+}
+
 const skillHints = [
+  'Ruby on Rails',
+  'Ruby',
   'React',
   'TypeScript',
   'JavaScript',
@@ -77,16 +100,52 @@ const skillHints = [
   'Figma',
 ]
 
+const mandatoryPlatformSearchTargets: PlatformSearchTarget[] = [
+  {
+    name: 'LinkedIn',
+    siteQuery: '(site:linkedin.com/jobs OR site:www.linkedin.com/jobs OR site:linkedin.com/jobs/view)',
+    resultLimit: 20,
+  },
+  {
+    name: 'Indeed',
+    siteQuery:
+      '(site:indeed.com/viewjob OR site:indeed.com/jobs OR site:uk.indeed.com/viewjob OR site:in.indeed.com/viewjob OR site:pk.indeed.com/viewjob)',
+    resultLimit: 20,
+  },
+  {
+    name: 'Naukri',
+    siteQuery: '(site:naukri.com/job-listings OR site:www.naukri.com/job-listings)',
+    resultLimit: 20,
+  },
+]
+
+const groupedPlatformSearchTargets: PlatformSearchTarget[] = [
+  {
+    name: 'Remote job boards',
+    siteQuery:
+      '(site:remotejobsfinder.co OR site:hubstafftalent.net/search/jobs OR site:jobspresso.co/remote-work OR site:remotive.com OR site:skipthedrive.com OR site:workew.com/remote-jobs OR site:dynamitejobs.com/remote-jobs)',
+    resultLimit: 20,
+  },
+  {
+    name: 'Career job boards',
+    siteQuery:
+      '(site:instahyre.com/job OR site:monster.com/job-openings OR site:monsterindia.com/job OR site:careercloud.com/jobs OR site:dice.com/job-detail OR site:careerbuilder.com/job OR site:jibberjobber.com/jobs OR site:glassdoor.com/job-listing)',
+    resultLimit: 20,
+  },
+]
+
 export async function fetchLiveJobs(input: LiveJobSearchInput, env: Record<string, string | undefined> = process.env) {
   const search = buildSearchProfile(input)
   const sourceTasks: Array<{ name: string; task: Promise<Job[]> }> = [
     { name: 'Remotive', task: fetchRemotiveJobs(search.sourceQuery) },
     { name: 'RemoteOK', task: fetchRemoteOkJobs(search.sourceQuery) },
     { name: 'Google Jobs', task: fetchSerpApiJobs(search.sourceQuery, input.location || 'Remote', env.SERPAPI_KEY) },
+    { name: 'Google Career Pages', task: fetchSerpApiOrganicJobs(search, input, env.SERPAPI_KEY) },
     { name: 'Adzuna', task: fetchAdzunaJobs(search, input, env) },
     { name: 'Jooble', task: fetchJoobleJobs(search, input, env) },
     { name: 'OpenWeb Ninja', task: fetchOpenWebNinjaJobs(search, input, env) },
     { name: 'JSearch', task: fetchRapidApiJobs(search, input, env.RAPIDAPI_KEY, 'JSearch') },
+    ...buildPlatformSourceTasks(search, input, env.SERPAPI_KEY),
   ]
   const sources = await Promise.allSettled(sourceTasks.map((source) => source.task))
 
@@ -106,7 +165,7 @@ export async function fetchLiveJobs(input: LiveJobSearchInput, env: Record<strin
   }
 
   result.jobs = filterRelevantJobsForSearch(result.jobs, input)
-    .slice(0, input.limit || 60)
+    .slice(0, input.limit || 80)
     .map(sanitiseJob)
 
   return result
@@ -153,10 +212,12 @@ function buildSearchProfile(input: LiveJobSearchInput): SearchProfile {
   )
   const roleQuery = buildRoleQuery(targetRoles, roleTerms, rawQuery)
   const strongestSkills = buildSourceSkillTerms(mustHaveSkills, coreSkillTerms, secondarySkillTerms)
+  const strictRoleQuery = buildStrictRoleQuery(targetRoles, roleTerms, rawQuery)
 
   return {
-    sourceQuery: [roleQuery, ...strongestSkills.slice(0, 5)].filter(Boolean).join(' '),
+    sourceQuery: [roleQuery || strictRoleQuery, ...strongestSkills.slice(0, 4)].filter(Boolean).join(' '),
     rawQuery,
+    strictRoleQuery,
     roleTerms,
     skillTerms: skills,
     mustHaveSkillTerms: mustHaveSkills,
@@ -184,6 +245,16 @@ function buildSourceSkillTerms(mustHaveSkills: string[], coreSkillTerms: string[
     (skill) => !mustHaveSkills.some((mustHave) => skillsEquivalent(skill, mustHave)),
   )
   return dedupeTerms([...mustHaveSkills.slice(0, 3), ...supportSkills.slice(0, 4)])
+}
+
+function buildStrictRoleQuery(targetRoles: string[], roleTerms: string[], rawQuery: string) {
+  if (targetRoles.length) return targetRoles[0]
+  const cleaned = cleanSearchTerm(rawQuery)
+    .split(/\s+/)
+    .filter((term) => !genericRoleTerms.has(term.toLowerCase()))
+    .join(' ')
+  if (cleaned) return cleaned
+  return roleTerms.join(' ')
 }
 
 async function fetchRemotiveJobs(query: string): Promise<Job[]> {
@@ -350,6 +421,202 @@ async function fetchSerpApiJobs(query: string, location: string, apiKey?: string
       fetchedAt: new Date().toISOString(),
     }
   })
+}
+
+async function fetchSerpApiOrganicJobs(
+  search: SearchProfile,
+  input: LiveJobSearchInput,
+  apiKey?: string,
+): Promise<Job[]> {
+  if (!apiKey) return []
+
+  const location = providerLocation(input.location, search)
+  const organicResults = await fetchSerpApiOrganicResults(
+    buildGoogleCareerSearchQuery(search, location),
+    location,
+    apiKey,
+    20,
+  )
+
+  return organicResults
+    .filter((item) => item.title && item.link)
+    .filter((item) => looksLikeJobSearchResult(item.title || '', item.link || '', item.snippet || '', search))
+    .map((item) => mapSerpOrganicResultToJob(item, search, location, `Google Web (${hostFromUrl(item.link || '')})`))
+}
+
+function buildPlatformSourceTasks(search: SearchProfile, input: LiveJobSearchInput, apiKey?: string) {
+  if (!apiKey) return []
+  return [...mandatoryPlatformSearchTargets, ...groupedPlatformSearchTargets].map((target) => ({
+    name: target.name,
+    task: fetchSerpApiPlatformJobs(search, input, apiKey, target),
+  }))
+}
+
+async function fetchSerpApiPlatformJobs(
+  search: SearchProfile,
+  input: LiveJobSearchInput,
+  apiKey: string,
+  target: PlatformSearchTarget,
+): Promise<Job[]> {
+  const location = providerLocation(input.location, search)
+  const organicResults = await fetchSerpApiOrganicResults(
+    buildPlatformSearchQuery(search, location, target.siteQuery),
+    location,
+    apiKey,
+    target.resultLimit || 10,
+  )
+
+  return organicResults
+    .filter((item) => item.title && item.link)
+    .filter((item) => looksLikeJobSearchResult(item.title || '', item.link || '', item.snippet || '', search))
+    .map((item) => mapSerpOrganicResultToJob(item, search, location, target.name))
+}
+
+async function fetchSerpApiOrganicResults(
+  query: string,
+  location: string,
+  apiKey: string,
+  limit: number,
+): Promise<SerpOrganicResult[]> {
+  const url = new URL('https://serpapi.com/search.json')
+  url.searchParams.set('engine', 'google')
+  url.searchParams.set('q', query)
+  url.searchParams.set('num', String(Math.max(1, Math.min(20, limit))))
+  url.searchParams.set('api_key', apiKey)
+  if (!/^remote$/i.test(location)) url.searchParams.set('location', location)
+
+  const response = await fetch(url.toString(), { headers: { Accept: 'application/json' } })
+  if (!response.ok) throw new Error(`SerpAPI organic HTTP ${response.status}`)
+  const data = (await response.json()) as { organic_results?: SerpOrganicResult[] }
+  return data.organic_results || []
+}
+
+function mapSerpOrganicResultToJob(
+  item: SerpOrganicResult,
+  search: SearchProfile,
+  location: string,
+  sourcePlatform: string,
+): Job {
+  const link = item.link || ''
+  const snippet = item.snippet || ''
+  const host = hostFromUrl(link)
+  const parsed = parseOrganicTitle(item.title || '', item.source || host, search)
+  const text = `${parsed.title} ${parsed.company} ${snippet}`
+  const salary = parseSalary(snippet)
+  const inferredSkills = inferSkills(text)
+  const skills = inferredSkills.length
+    ? inferredSkills
+    : search.mustHaveSkillTerms
+        .filter((skill) => phraseMatches(normaliseForMatch(text), skill))
+        .slice(0, 8)
+        .map((skill) => ({ skill, required: true, weight: 1 }))
+  const inferredLocation = inferOrganicLocation(snippet, location)
+
+  return {
+    id: uuidFromText(`google-web-${link}`),
+    title: parsed.title,
+    company: parsed.company,
+    companyLogo: initials(parsed.company || host || 'GW'),
+    location: inferredLocation,
+    country: countryFromLocation(inferredLocation),
+    city: cityFromLocation(inferredLocation),
+    isRemote: /remote/i.test(`${parsed.title} ${snippet} ${location}`),
+    workMode: inferWorkMode(`${parsed.title} ${snippet} ${location}`),
+    description: snippet || `Public job result discovered from ${host}.`,
+    descriptionHtml: `<p>${escapeHtml(snippet || `Public job result discovered from ${host}.`)}</p>`,
+    salaryMin: salary.min,
+    salaryMax: salary.max,
+    salaryCurrency: 'USD',
+    jobType: normaliseJobType(`${parsed.title} ${snippet}`),
+    experienceMin: inferExperienceMin(`${parsed.title} ${snippet}`),
+    experienceMax: inferExperienceMax(`${parsed.title} ${snippet}`),
+    level: inferLevel(`${parsed.title} ${snippet}`),
+    skillsRequired: skills,
+    applyUrl: link,
+    sourcePlatform,
+    postedAt: normalisePostedAt(item.rich_snippet?.top?.extensions?.join(' ') || snippet),
+    fetchedAt: new Date().toISOString(),
+  }
+}
+
+function buildGoogleCareerSearchQuery(search: SearchProfile, location: string) {
+  const role = search.strictRoleQuery || search.sourceQuery || search.rawQuery
+  const rolePhrase = role.includes(' ') ? `"${role}"` : role
+  const locationTerm = /^remote$/i.test(location) ? 'remote' : `"${location}"`
+  const experienceTerms = buildExperienceSearchTerms(search.experienceYears)
+  const platformTerms = '(job OR jobs OR careers OR hiring OR vacancy OR opening)'
+  const sourceTerms =
+    '(site:linkedin.com/jobs OR site:indeed.com OR site:naukri.com OR site:glassdoor.com OR site:dice.com OR site:greenhouse.io OR site:lever.co OR site:workable.com OR site:ashbyhq.com OR site:bamboohr.com OR site:smartrecruiters.com OR site:jobs.lever.co OR careers)'
+  return [rolePhrase, platformTerms, experienceTerms, locationTerm, sourceTerms]
+    .filter(Boolean)
+    .join(' ')
+    .slice(0, 480)
+}
+
+function buildPlatformSearchQuery(search: SearchProfile, location: string, siteQuery: string) {
+  const role = search.strictRoleQuery || search.sourceQuery || search.rawQuery
+  const rolePhrase = role.includes(' ') ? `"${role}"` : role
+  const locationTerm = /^remote$/i.test(location) ? '(remote OR anywhere)' : `"${location}"`
+  const experienceTerms = buildExperienceSearchTerms(search.experienceYears)
+  const mustHaveTerms = search.mustHaveSkillTerms
+    .slice(0, 3)
+    .map((skill) => (skill.includes(' ') ? `"${skill}"` : skill))
+    .join(' ')
+  return [rolePhrase, mustHaveTerms, '(job OR jobs OR hiring OR opening OR vacancy)', experienceTerms, locationTerm, siteQuery]
+    .filter(Boolean)
+    .join(' ')
+    .slice(0, 520)
+}
+
+function buildExperienceSearchTerms(experienceYears?: number) {
+  if (!experienceYears || experienceYears <= 0) return ''
+  const lower = Math.max(0, Math.floor(experienceYears) - 3)
+  const upper = Math.floor(experienceYears)
+  const years = Array.from({ length: upper - lower + 1 }, (_, index) => lower + index).filter((year) => year > 0)
+  if (!years.length) return ''
+  return `(${years.map((year) => `"${year}+ years" OR "${year} years"`).join(' OR ')} OR senior)`
+}
+
+function looksLikeJobSearchResult(title: string, link: string, snippet: string, search: SearchProfile) {
+  const host = hostFromUrl(link)
+  const signal = normaliseForMatch(`${title} ${snippet} ${host}`)
+  const careerUrl = /\/(jobs?|careers?|positions?|openings?|vacanc|job-detail|job_boards|postings|recruiting|apply)\b/i.test(link)
+  const knownJobHost =
+    /(linkedin|indeed|naukri|instahyre|monster|careercloud|dice|careerbuilder|jibberjobber|glassdoor|remotejobsfinder|hubstafftalent|jobspresso|remotive|skipthedrive|workew|dynamitejobs|greenhouse|lever|workable|ashbyhq|bamboohr|smartrecruiters|wellfound|otta|remoteok)/i.test(
+      host,
+    )
+  return (
+    (careerUrl || knownJobHost || /\b(job|jobs|careers|hiring|vacancy|opening|apply)\b/i.test(signal)) &&
+    resultMatchesRoleOrStrongSkills(title, snippet, search)
+  )
+}
+
+function parseOrganicTitle(title: string, fallbackCompany: string, search: SearchProfile) {
+  const cleaned = title
+    .replace(
+      /\s+[-|–—]\s+(LinkedIn|Indeed|Naukri|Instahyre|Monster|CareerCloud|Dice|CareerBuilder|JibberJobber|Glassdoor|RemoteJobsFinder|Hubstaff|Jobspresso|Remotive|SkipTheDrive|Workew|Dynamite Jobs|Wellfound|Greenhouse|Lever|Workable|Ashby|SmartRecruiters).*$/i,
+      '',
+    )
+    .replace(
+      /\s+\|\s+(LinkedIn|Indeed|Naukri|Instahyre|Monster|CareerCloud|Dice|CareerBuilder|JibberJobber|Glassdoor|RemoteJobsFinder|Hubstaff|Jobspresso|Remotive|SkipTheDrive|Workew|Dynamite Jobs|Wellfound|Greenhouse|Lever|Workable|Ashby|SmartRecruiters).*$/i,
+      '',
+    )
+    .trim()
+  const parts = cleaned.split(/\s+(?:[-|–—]|\|)\s+/).map((part) => part.trim()).filter(Boolean)
+  const rolePart = parts.find((part) => titleMatchesRole(part, search)) || parts[0] || cleaned
+  const companyPart = parts.find((part) => part !== rolePart && !/\b(job|jobs|careers|hiring|apply)\b/i.test(part)) || fallbackCompany
+
+  return {
+    title: rolePart.slice(0, 180),
+    company: companyPart.slice(0, 120) || fallbackCompany || 'Hiring company',
+  }
+}
+
+function inferOrganicLocation(snippet: string, fallback: string) {
+  const remoteMatch = snippet.match(/\bremote\b/i)
+  if (remoteMatch) return 'Remote'
+  const locationMatch = snippet.match(/\b(?:in|location:)\s+([A-Z][A-Za-z .'-]+(?:,\s*[A-Z][A-Za-z .'-]+)?)/)
+  return locationMatch?.[1]?.slice(0, 120) || fallback || 'Remote'
 }
 
 async function fetchAdzunaJobs(
@@ -855,17 +1122,11 @@ function scoreJobRelevance(job: Job, search: SearchProfile) {
     `${job.title} ${job.company} ${job.description} ${job.skillsRequired.map((skill) => skill.skill).join(' ')}`,
   )
   const declaredSkills = job.skillsRequired.map((skill) => skill.skill)
-  const matchedCoreSkills = search.coreSkillTerms.filter(
-    (skill) => phraseMatches(haystack, skill) || declaredSkills.some((declared) => skillsEquivalent(declared, skill)),
-  )
-  const matchedSecondarySkills = search.secondarySkillTerms.filter(
-    (skill) => phraseMatches(haystack, skill) || declaredSkills.some((declared) => skillsEquivalent(declared, skill)),
-  )
-  const matchedMustHaveSkills = search.mustHaveSkillTerms.filter(
-    (skill) => phraseMatches(haystack, skill) || declaredSkills.some((declared) => skillsEquivalent(declared, skill)),
-  )
+  const matchedCoreSkills = search.coreSkillTerms.filter((skill) => skillMatchesJob(haystack, declaredSkills, skill))
+  const matchedSecondarySkills = search.secondarySkillTerms.filter((skill) => skillMatchesJob(haystack, declaredSkills, skill))
+  const matchedMustHaveSkills = search.mustHaveSkillTerms.filter((skill) => skillMatchesJob(haystack, declaredSkills, skill))
   const matchedBroadSkills = search.broadSkillTerms.filter((skill) => phraseMatches(haystack, skill))
-  const roleMatches = search.roleTerms.filter((term) => phraseMatches(title, term) || phraseMatches(haystack, term))
+  const roleMatches = search.roleTerms.filter((term) => phraseMatches(title, term))
   const requiredCoreMatches = search.coreSkillTerms.length >= 3 ? 2 : search.coreSkillTerms.length ? 1 : 0
   const requiredMustHaveMatches = search.mustHaveSkillTerms.length
     ? Math.min(3, Math.max(1, Math.ceil(search.mustHaveSkillTerms.length * 0.45)))
@@ -875,10 +1136,13 @@ function scoreJobRelevance(job: Job, search: SearchProfile) {
     : matchedSecondarySkills.length >= Math.min(2, search.secondarySkillTerms.length)
   const hasMustHaveFit =
     !search.mustHaveSkillTerms.length || matchedMustHaveSkills.length >= requiredMustHaveMatches
-  const hasRoleFit =
-    roleMatches.length > 0 ||
-    titleHasDesiredDomain(title, search) ||
-    (hasTechnicalTarget(search) && hasTechnicalRoleTitle(title) && matchedCoreSkills.length >= requiredCoreMatches)
+  const hasRoleFit = hasRoleMatchOrStrongSkillFit(
+    job.title,
+    search,
+    matchedCoreSkills,
+    matchedMustHaveSkills,
+    matchedSecondarySkills,
+  )
   const experienceFit = hasReasonableExperienceFit(job, search.experienceYears)
   const locationFit = hasLocationFit(job, search)
   const salaryFit = hasSalaryFit(job, search)
@@ -914,10 +1178,26 @@ function scoreJobRelevance(job: Job, search: SearchProfile) {
 
 function hasReasonableExperienceFit(job: Job, experienceYears?: number) {
   if (experienceYears === undefined || experienceYears <= 0) return true
-  if (job.experienceMin !== undefined && job.experienceMin > experienceYears + 2) return false
-  if (job.level === 'lead' && experienceYears < 4) return false
-  if (job.level === 'senior' && experienceYears < 2) return false
+  const userYears = Math.floor(experienceYears)
+  const lowerWindow = Math.max(0, userYears - 3)
+  const inferredMin = job.experienceMin ?? levelExperienceRange(job.level).min
+  const inferredMax = job.experienceMax ?? levelExperienceRange(job.level).max
+
+  if (job.level === 'entry' && userYears >= 4) return false
+  if (job.level === 'lead' && userYears < 4) return false
+  if (job.level === 'senior' && userYears < 2) return false
+  if (inferredMin !== undefined && inferredMin > userYears) return false
+  if (inferredMax !== undefined && inferredMax < lowerWindow) return false
   return true
+}
+
+function levelExperienceRange(level: ExperienceLevel): { min?: number; max?: number } {
+  if (level === 'entry') return { min: 0, max: 2 }
+  if (level === 'mid') return { min: 2, max: 5 }
+  if (level === 'senior') return { min: 4, max: 8 }
+  if (level === 'lead') return { min: 6 }
+  if (level === 'executive') return { min: 8 }
+  return {}
 }
 
 function hasLocationFit(job: Job, search: SearchProfile) {
@@ -946,7 +1226,7 @@ function hasConflictingDomain(title: string, search: SearchProfile) {
   const titleDomains = new Set(domainEntries.filter((entry) => entry.terms.some((term) => phraseMatches(title, term))).map((entry) => entry.name))
   if (!titleDomains.size) return false
 
-  return [...titleDomains].some((domain) => !desired.has(domain)) && ![...desired].some((domain) => titleDomains.has(domain))
+  return !domainsOverlapOrCompatible(desired, titleDomains)
 }
 
 function titleHasDesiredDomain(title: string, search: SearchProfile) {
@@ -954,9 +1234,16 @@ function titleHasDesiredDomain(title: string, search: SearchProfile) {
   return [...desired].some((domain) => domainEntries.find((entry) => entry.name === domain)?.terms.some((term) => phraseMatches(title, term)))
 }
 
+function domainsOverlapOrCompatible(desired: Set<string>, titleDomains: Set<string>) {
+  if ([...desired].some((domain) => titleDomains.has(domain))) return true
+  if (titleDomains.has('fullstack') && (desired.has('frontend') || desired.has('backend'))) return true
+  if (desired.has('fullstack') && (titleDomains.has('frontend') || titleDomains.has('backend'))) return true
+  return false
+}
+
 const domainEntries = [
   { name: 'frontend', terms: ['frontend', 'front end', 'react', 'next.js', 'ui engineer', 'web developer'] },
-  { name: 'backend', terms: ['backend', 'back end', 'node.js', 'api engineer', 'server', 'laravel', 'django'] },
+  { name: 'backend', terms: ['backend', 'back end', 'node.js', 'api engineer', 'server', 'laravel', 'django', 'rails', 'ruby', 'ruby on rails'] },
   { name: 'fullstack', terms: ['full stack', 'fullstack', 'mern', 'mean'] },
   { name: 'mobile', terms: ['mobile', 'android', 'ios', 'react native', 'flutter'] },
   { name: 'data', terms: ['data engineer', 'data scientist', 'machine learning', 'ml engineer', 'analytics engineer'] },
@@ -989,9 +1276,79 @@ function hasDisallowedTitle(title: string, search: SearchProfile) {
   )
 }
 
+function titleMatchesRole(titleValue: string, search: SearchProfile) {
+  const title = normaliseForMatch(titleValue)
+  const strictRole = normaliseForMatch(search.strictRoleQuery)
+  const targetRoleTerms = extractImportantTitleTerms(strictRole)
+  const roleTermMatches = search.roleTerms.filter((term) => phraseMatches(title, term))
+
+  if (strictRole && phraseMatches(title, strictRole)) return true
+  if (targetRoleTerms.length >= 2 && targetRoleTerms.every((term) => phraseMatches(title, term))) return true
+  if (targetRoleTerms.length === 1 && phraseMatches(title, targetRoleTerms[0])) return true
+  if (search.roleTerms.length >= 2 && roleTermMatches.length >= Math.min(2, search.roleTerms.length)) return true
+  if (search.roleTerms.length === 1 && roleTermMatches.length === 1) return true
+  if (titleHasDesiredDomain(title, search) && hasTechnicalRoleTitle(title)) return true
+
+  const coreTitleMatches = search.coreSkillTerms.filter((skill) => phraseMatches(title, skill) || skillsEquivalent(title, skill))
+  if (hasTechnicalTarget(search) && hasTechnicalRoleTitle(title) && coreTitleMatches.length > 0) return true
+  return false
+}
+
+function resultMatchesRoleOrStrongSkills(titleValue: string, snippet: string, search: SearchProfile) {
+  if (titleMatchesRole(titleValue, search)) return true
+  const title = normaliseForMatch(titleValue)
+  if (!hasTechnicalTarget(search) || !hasTechnicalRoleTitle(title)) return false
+  if (hasDisallowedTitle(title, search) || hasConflictingDomain(title, search)) return false
+
+  const haystack = normaliseForMatch(`${titleValue} ${snippet}`)
+  const matchedCoreSkills = search.coreSkillTerms.filter((skill) => phraseMatches(haystack, skill))
+  const matchedSecondarySkills = search.secondarySkillTerms.filter((skill) => phraseMatches(haystack, skill))
+  const matchedMustHaveSkills = search.mustHaveSkillTerms.filter((skill) => phraseMatches(haystack, skill))
+  return hasStrongSkillEvidence(search, matchedCoreSkills, matchedMustHaveSkills, matchedSecondarySkills)
+}
+
+function hasRoleMatchOrStrongSkillFit(
+  titleValue: string,
+  search: SearchProfile,
+  matchedCoreSkills: string[],
+  matchedMustHaveSkills: string[],
+  matchedSecondarySkills: string[],
+) {
+  if (titleMatchesRole(titleValue, search)) return true
+  const title = normaliseForMatch(titleValue)
+  if (!hasTechnicalTarget(search) || !hasTechnicalRoleTitle(title)) return false
+  return hasStrongSkillEvidence(search, matchedCoreSkills, matchedMustHaveSkills, matchedSecondarySkills)
+}
+
+function hasStrongSkillEvidence(
+  search: SearchProfile,
+  matchedCoreSkills: string[],
+  matchedMustHaveSkills: string[],
+  matchedSecondarySkills: string[],
+) {
+  if (search.mustHaveSkillTerms.length && matchedMustHaveSkills.length >= Math.min(2, search.mustHaveSkillTerms.length)) {
+    return true
+  }
+
+  const requiredCoreMatches = search.coreSkillTerms.length >= 3 ? 2 : search.coreSkillTerms.length
+  if (requiredCoreMatches && matchedCoreSkills.length >= requiredCoreMatches) return true
+
+  return matchedCoreSkills.length >= 1 && matchedSecondarySkills.length >= 2
+}
+
+function extractImportantTitleTerms(value: string) {
+  return dedupeTerms(
+    value
+      .split(/\s+/)
+      .filter((term) => term.length > 2)
+      .filter((term) => !genericRoleTerms.has(term))
+      .filter((term) => !/^(and|with|for)$/i.test(term)),
+  )
+}
+
 function hasTechnicalTarget(search: SearchProfile) {
   return (
-    /\b(engineer|developer|software|frontend|backend|full stack|fullstack|web|rails|react|javascript|typescript|node)\b/i.test(
+    /\b(engineer|developer|software|frontend|backend|full stack|fullstack|web|rails|ruby|react|javascript|typescript|node)\b/i.test(
       search.rawQuery,
     ) || desiredDomains(search).size > 0
   )
@@ -1021,6 +1378,17 @@ function extractRoleTerms(query: string, skills: string[]) {
 const genericRoleTerms = new Set([
   'job',
   'jobs',
+  'career',
+  'careers',
+  'vacancy',
+  'vacancies',
+  'opening',
+  'openings',
+  'hiring',
+  'hire',
+  'position',
+  'positions',
+  'apply',
   'role',
   'remote',
   'software',
@@ -1069,12 +1437,13 @@ const secondarySearchSkills = new Set([
 ])
 
 const skillPriority = [
+  'ruby on rails',
+  'ruby',
   'react',
   'typescript',
   'javascript',
   'next.js',
   'node.js',
-  'ruby on rails',
   'laravel',
   'php',
   'python',
@@ -1115,6 +1484,8 @@ function skillSearchRank(skill: string) {
 
 function matchesSkillHint(text: string, skill: string) {
   const haystack = normaliseForMatch(text)
+  if (skill === 'Ruby on Rails') return /\b(ruby on rails|rails)\b/i.test(haystack)
+  if (skill === 'Ruby') return /\bruby\b/i.test(haystack)
   if (skill === 'Data Analysis') return /\b(data analysis|data analytics|analytics|pandas|numpy)\b/i.test(haystack)
   if (skill === 'REST APIs') return /\b(rest api|rest apis|restful|api design)\b/i.test(haystack)
   if (skill === 'CI/CD') return /\b(ci\/cd|ci cd|github actions|gitlab ci)\b/i.test(haystack)
@@ -1140,6 +1511,17 @@ function normaliseForMatch(value: string) {
 
 function skillsEquivalent(left: string, right: string) {
   return normaliseSkillForCompare(left) === normaliseSkillForCompare(right)
+}
+
+function skillMatchesJob(haystack: string, declaredSkills: string[], skill: string) {
+  if (phraseMatches(haystack, skill)) return true
+  if (declaredSkills.some((declared) => skillsEquivalent(declared, skill))) return true
+
+  const normalised = normaliseSkillForCompare(skill)
+  if (normalised === 'ruby on rails') {
+    return phraseMatches(haystack, 'rails') && (phraseMatches(haystack, 'ruby') || hasTechnicalRoleTitle(haystack))
+  }
+  return false
 }
 
 function normaliseSkillForCompare(skill: string) {
@@ -1243,6 +1625,14 @@ function initials(value: string) {
     .join('')
     .slice(0, 2)
     .toUpperCase()
+}
+
+function hostFromUrl(value: string) {
+  try {
+    return new URL(value).hostname.replace(/^www\./, '')
+  } catch {
+    return 'career site'
+  }
 }
 
 function hash(value: string) {
