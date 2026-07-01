@@ -30,7 +30,7 @@ const liveJobsQuerySchema = z.object({
   skills: z
     .string()
     .trim()
-    .max(500, 'Skills list is too long.')
+    .max(900, 'Skills list is too long.')
     .optional()
     .default(''),
   targetRoles: z.string().trim().max(500, 'Target roles list is too long.').optional().default(''),
@@ -41,7 +41,7 @@ const liveJobsQuerySchema = z.object({
   remotePreference: z.enum(['remote', 'hybrid', 'onsite', 'any']).optional().default('remote'),
   minimumSalary: z.coerce.number().min(0).max(1_000_000).optional().default(0),
   experienceYears: z.coerce.number().min(0).max(60).optional(),
-  limit: z.coerce.number().int().min(1).max(60).optional().default(60),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(80),
 })
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
@@ -57,7 +57,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       .split(',')
       .map((skill) => skill.trim())
       .filter((skill) => /^[\w\s+#./-]{1,50}$/.test(skill))
-      .slice(0, 20)
+      .slice(0, 30)
       .filter(Boolean)
     const targetRoles = cleanCsv(input.targetRoles, 12, 120)
     const mustHaveSkills = cleanCsv(input.mustHaveSkills, 30, 80)

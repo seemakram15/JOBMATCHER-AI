@@ -109,6 +109,7 @@ interface CustomJobRecordInput {
   experienceMin: number
   experienceMax: number
   reminderDate?: string
+  sourcePlatform?: string
 }
 
 let authListenerStarted = false
@@ -489,7 +490,7 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
         level: input.level,
         skillsRequired: cleanSkills.map((skill) => ({ skill, required: true, weight: 1 })),
         applyUrl,
-        sourcePlatform: 'Manual',
+        sourcePlatform: input.sourcePlatform?.trim() || 'Manual',
         postedAt: now,
         fetchedAt: now,
       }
@@ -507,7 +508,9 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
           {
             oldStatus: null,
             newStatus: input.status,
-            note: 'Custom job record added from tracker',
+            note: input.sourcePlatform?.trim()
+              ? `Custom job record added from ${input.sourcePlatform.trim()}`
+              : 'Custom job record added from tracker',
             changedAt: now,
           },
         ],

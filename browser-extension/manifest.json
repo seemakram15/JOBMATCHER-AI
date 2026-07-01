@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "Jobmatcher Capture",
+  "description": "Save selected job pages from LinkedIn, Indeed, and Naukri into Jobmatcher.",
+  "version": "0.1.0",
+  "permissions": ["storage", "activeTab", "scripting", "tabs"],
+  "action": {
+    "default_title": "Show Save to Jobmatcher"
+  },
+  "host_permissions": [
+    "http://127.0.0.1:3002/*",
+    "http://localhost:3002/*",
+    "https://myjobmatcher.vercel.app/*",
+    "https://linkedin.com/*",
+    "https://www.linkedin.com/*",
+    "https://www.linkedin.com/jobs/*",
+    "https://*.linkedin.com/*",
+    "https://*.linkedin.com/jobs/*",
+    "https://indeed.com/*",
+    "https://www.indeed.com/*",
+    "https://*.indeed.com/*",
+    "https://naukri.com/*",
+    "https://www.naukri.com/*",
+    "https://*.naukri.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1:3002/*",
+        "http://localhost:3002/*",
+        "https://myjobmatcher.vercel.app/*"
+      ],
+      "js": ["connect.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://linkedin.com/*",
+        "https://www.linkedin.com/*",
+        "https://www.linkedin.com/jobs/*",
+        "https://*.linkedin.com/*",
+        "https://*.linkedin.com/jobs/*",
+        "https://indeed.com/*",
+        "https://www.indeed.com/*",
+        "https://*.indeed.com/*",
+        "https://naukri.com/*",
+        "https://www.naukri.com/*",
+        "https://*.naukri.com/*"
+      ],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

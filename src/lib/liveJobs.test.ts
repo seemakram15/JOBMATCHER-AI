@@ -177,4 +177,121 @@ describe('live job relevance filtering', () => {
     expect(explanation.search.sourceQuery).toContain('GraphQL')
     expect(explanation.relevance.accept).toBe(true)
   })
+
+  it('keeps job titles restricted while allowing a 7-year user to see 4-7 year Rails roles', () => {
+    const results = filterRelevantJobsForSearch(
+      [
+        job({
+          title: 'Ruby on Rails Developer',
+          description: 'Build marketplace products with Ruby on Rails, PostgreSQL, Redis, and REST APIs. 4+ years experience.',
+          experienceMin: 4,
+          experienceMax: 6,
+          level: 'senior',
+          skillsRequired: [
+            { skill: 'Ruby on Rails', required: true, weight: 1 },
+            { skill: 'PostgreSQL', required: true, weight: 1 },
+          ],
+        }),
+        job({
+          title: 'Senior Ruby Engineer',
+          description: 'Rails monolith modernization with MySQL and background jobs. 7 years experience preferred.',
+          experienceMin: 7,
+          experienceMax: 9,
+          level: 'senior',
+          skillsRequired: [
+            { skill: 'Ruby', required: true, weight: 1 },
+            { skill: 'MySQL', required: true, weight: 1 },
+          ],
+        }),
+        job({
+          title: 'Junior Ruby on Rails Developer',
+          description: 'Entry-level Rails role for graduates.',
+          experienceMin: 0,
+          experienceMax: 2,
+          level: 'entry',
+          skillsRequired: [{ skill: 'Ruby on Rails', required: true, weight: 1 }],
+        }),
+        job({
+          title: 'Site Reliability Engineer',
+          description: 'AWS, Kubernetes, Terraform, and incident response for Rails systems.',
+          experienceMin: 5,
+          experienceMax: 8,
+          level: 'senior',
+          skillsRequired: [{ skill: 'AWS', required: true, weight: 1 }],
+        }),
+        job({
+          title: 'Ruby on Rails Architect',
+          description: 'Platform architecture role requiring 8+ years with Rails.',
+          experienceMin: 8,
+          experienceMax: 12,
+          level: 'lead',
+          skillsRequired: [{ skill: 'Ruby on Rails', required: true, weight: 1 }],
+        }),
+      ],
+      {
+        query: 'Ruby on Rails careers',
+        skills: ['Ruby on Rails', 'Ruby', 'PostgreSQL', 'MySQL', 'Redis', 'REST APIs'],
+        mustHaveSkills: ['Ruby on Rails'],
+        preferredCountries: ['Remote'],
+        preferredCities: ['Remote'],
+        remotePreference: 'remote',
+        experienceYears: 7,
+        limit: 10,
+      },
+    )
+
+    expect(results.map((result) => result.title)).toEqual([
+      'Ruby on Rails Developer',
+      'Senior Ruby Engineer',
+    ])
+  })
+
+  it('allows generic technical titles when the JD strongly matches the role skills', () => {
+    const goodFit = explainLiveJobRelevance(
+      job({
+        title: 'Full Stack Software Engineer',
+        description:
+          'Own product features across a Ruby on Rails backend, React frontend, PostgreSQL, Redis, and REST APIs. 5+ years experience.',
+        experienceMin: 5,
+        experienceMax: 7,
+        level: 'senior',
+        skillsRequired: [
+          { skill: 'Ruby on Rails', required: true, weight: 1 },
+          { skill: 'React', required: true, weight: 1 },
+          { skill: 'PostgreSQL', required: true, weight: 1 },
+        ],
+      }),
+      {
+        query: 'Ruby on Rails careers',
+        skills: ['Ruby on Rails', 'Ruby', 'React', 'PostgreSQL', 'Redis', 'REST APIs'],
+        mustHaveSkills: ['Ruby on Rails'],
+        preferredCountries: ['Remote'],
+        preferredCities: ['Remote'],
+        remotePreference: 'remote',
+        experienceYears: 7,
+        limit: 10,
+      },
+    )
+
+    const badFit = explainLiveJobRelevance(
+      job({
+        title: 'Data Entry Specialist',
+        description: 'Spreadsheet research and administrative data cleanup with light software exposure.',
+        skillsRequired: [{ skill: 'Data Analysis', required: true, weight: 1 }],
+      }),
+      {
+        query: 'Ruby on Rails careers',
+        skills: ['Ruby on Rails', 'Ruby', 'React', 'PostgreSQL', 'Redis', 'REST APIs'],
+        mustHaveSkills: ['Ruby on Rails'],
+        preferredCountries: ['Remote'],
+        preferredCities: ['Remote'],
+        remotePreference: 'remote',
+        experienceYears: 7,
+        limit: 10,
+      },
+    )
+
+    expect(goodFit.relevance.accept).toBe(true)
+    expect(badFit.relevance.accept).toBe(false)
+  })
 })
