@@ -59,6 +59,14 @@ export default defineConfig(({ mode }) => {
               sendApiMiddlewareError(res, error)
             }
           })
+          server.middlewares.use('/api/import-captured-job', async (req, res) => {
+            try {
+              const { default: importCapturedJobHandler } = await import('./api/import-captured-job')
+              await importCapturedJobHandler(req, res)
+            } catch (error) {
+              sendApiMiddlewareError(res, error)
+            }
+          })
           server.middlewares.use('/api/auth-signup', async (req, res) => {
             try {
               const { default: authSignupHandler } = await import('./api/auth-signup')

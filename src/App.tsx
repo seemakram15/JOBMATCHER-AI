@@ -20,6 +20,7 @@ import {
   DatabaseZap,
   Eye,
   EyeOff,
+  ExternalLink,
   FileText,
   Gauge,
   Globe2,
@@ -122,6 +123,8 @@ import type {
 
 type Accent = 'primary' | 'cyan' | 'success' | 'warning' | 'violet' | 'pink' | 'danger' | 'muted'
 
+const pendingCaptureStorageKey = 'jobmatcher-pending-captured-job-v1'
+
 interface NavItem {
   to: string
   label: string
@@ -219,6 +222,166 @@ const countryCityOptions = [
   { country: 'France', cities: ['Any city', 'Paris', 'Lyon', 'Marseille', 'Toulouse', 'Lille'] },
 ]
 
+interface CapturedJobDraft {
+  title: string
+  company: string
+  location: string
+  applyUrl: string
+  description: string
+  sourcePlatform: string
+}
+
+function buildExternalJobSearchLinks(profile: UserProfile, activeCv: CvProfile) {
+  const rankedCvSkills = [...activeCv.skills]
+    .sort((a, b) => (b.skillRank || 0) - (a.skillRank || 0))
+    .map((skill) => skill.skillName)
+    .filter(Boolean)
+    .slice(0, 8)
+  const targetRoles = usefulPreferenceTerms(profile.targetRoles).length ? usefulPreferenceTerms(profile.targetRoles) : [profile.targetRole]
+  const query = [
+    targetRoles[0],
+    ...usefulPreferenceTerms(profile.mustHaveSkills).slice(0, 3),
+    ...profileSearchSkills(profile, rankedCvSkills).slice(0, 3),
+  ]
+    .filter(Boolean)
+    .join(' ')
+  const years = Math.max(Number(profile.experienceYears) || 0, Number(activeCv.totalYearsExperience) || 0)
+  const keywordQuery = [query || 'software engineer', years ? `${Math.max(1, years - 3)} ${years} years` : ''].filter(Boolean).join(' ')
+  const location = profileSearchLocation(profile)
+  const encodedQuery = encodeURIComponent(keywordQuery)
+  const encodedLocation = encodeURIComponent(location || 'Remote')
+  const naukriSlug = keywordQuery
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+
+  return [
+    {
+      label: 'LinkedIn',
+      href: `https://www.linkedin.com/jobs/search/?keywords=${encodedQuery}&location=${encodedLocation}`,
+    },
+    {
+      label: 'Indeed',
+      href: `https://www.indeed.com/jobs?q=${encodedQuery}&l=${encodedLocation}`,
+    },
+    {
+      label: 'Naukri',
+      href: `https://www.naukri.com/${naukriSlug || 'software-engineer'}-jobs?k=${encodedQuery}&l=${encodedLocation}`,
+    },
+  ]
+}
+
+function getAppOrigin() {
+  if (typeof window === 'undefined') return 'https://myjobmatcher.vercel.app'
+  return window.location.origin
+}
+
+function persistCapturedJobFromSearch(search: string) {
+  const captured = decodeCapturedJobFromSearch(search)
+  if (!captured || typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(pendingCaptureStorageKey, JSON.stringify(captured))
+  } catch {
+    // Ignore private browsing storage failures; the query parameter still works while present.
+  }
+}
+
+function takeCapturedJob(search: string) {
+  const fromSearch = decodeCapturedJobFromSearch(search)
+  if (fromSearch) {
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.removeItem(pendingCaptureStorageKey)
+      } catch {
+        return fromSearch
+      }
+    }
+    return fromSearch
+  }
+  const stored = readStoredCapturedJob()
+  if (!stored || typeof window === 'undefined') return stored
+  try {
+    window.localStorage.removeItem(pendingCaptureStorageKey)
+  } catch {
+    return stored
+  }
+  return stored
+}
+
+function readStoredCapturedJob() {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(pendingCaptureStorageKey)
+    if (!raw) return null
+    return normaliseCapturedJobPayload(JSON.parse(raw))
+  } catch {
+    return null
+  }
+}
+
+function decodeCapturedJobFromSearch(search: string) {
+  const encoded = new URLSearchParams(search).get('capture')
+  if (!encoded || typeof window === 'undefined') return null
+  try {
+    const binary = window.atob(encoded)
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+    return normaliseCapturedJobPayload(JSON.parse(new TextDecoder().decode(bytes)))
+  } catch {
+    try {
+      return normaliseCapturedJobPayload(JSON.parse(decodeURIComponent(encoded)))
+    } catch {
+      return null
+    }
+  }
+}
+
+function normaliseCapturedJobPayload(value: unknown): CapturedJobDraft | null {
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  const applyUrl = safeCapturedUrl(record.applyUrl)
+  if (!applyUrl) return null
+  const sourcePlatform = detectCapturedJobPlatform(applyUrl, safeCapturedText(record.sourcePlatform, 80))
+  return {
+    title: safeCapturedText(record.title, 180),
+    company: safeCapturedText(record.company, 140),
+    location: safeCapturedText(record.location, 140),
+    applyUrl,
+    description: safeCapturedText(record.description, 5000),
+    sourcePlatform,
+  }
+}
+
+function safeCapturedText(value: unknown, maxLength: number) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength)
+}
+
+function safeCapturedUrl(value: unknown) {
+  try {
+    const url = new URL(String(value || ''))
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.toString().slice(0, 1200) : ''
+  } catch {
+    return ''
+  }
+}
+
+function detectCapturedJobPlatform(applyUrl: string, fallback: string) {
+  const host = (() => {
+    try {
+      return new URL(applyUrl).hostname.toLowerCase()
+    } catch {
+      return fallback.toLowerCase()
+    }
+  })()
+  if (host.includes('linkedin')) return 'LinkedIn Capture'
+  if (host.includes('indeed')) return 'Indeed Capture'
+  if (host.includes('naukri')) return 'Naukri Capture'
+  if (host.includes('glassdoor')) return 'Glassdoor Capture'
+  return fallback ? `${fallback.replace(/^www\./, '')} Capture` : 'Browser Capture'
+}
+
 function App() {
   const location = useLocation()
   const authStatus = useJobmatchStore((state) => state.authStatus)
@@ -244,6 +407,10 @@ function App() {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' })
   }, [location.pathname])
+
+  useEffect(() => {
+    persistCapturedJobFromSearch(location.search)
+  }, [location.search])
 
   if (location.pathname === '/') {
     return <LandingPage />
@@ -1082,7 +1249,7 @@ function AuthPage() {
 
   useEffect(() => {
     if (!recoveryMode && authStatus === 'authenticated' && workspaceStatus === 'ready') {
-      navigate(isProfileComplete(profile) ? '/dashboard' : '/profile')
+      navigate(readStoredCapturedJob() ? '/tracker' : isProfileComplete(profile) ? '/dashboard' : '/profile')
     }
   }, [recoveryMode, authStatus, workspaceStatus, profile, navigate])
 
@@ -1861,7 +2028,7 @@ function useLiveJobSearch() {
       remotePreference: normaliseRemotePreference(profile.remotePreference),
       minimumSalary: String(profile.minimumSalary || profile.salaryMin || 0),
       experienceYears: String(experienceYears),
-      limit: '40',
+      limit: '80',
     })
 
     setStatus('loading')
@@ -2697,6 +2864,7 @@ const discoverySortOptions: { value: JobFilters['sort']; label: string }[] = [
 ]
 
 function JobDiscoveryPage() {
+  const view = useWorkspaceView()
   const scoredJobs = useScoredJobs()
   const filters = useJobmatchStore((state) => state.filters)
   const selectedJobId = useJobmatchStore((state) => state.selectedJobId)
@@ -2712,6 +2880,10 @@ function JobDiscoveryPage() {
   const filteredJobs = useMemo(() => filterAndSortJobs(scoredJobs, filters), [scoredJobs, filters])
   const selected = filteredJobs.find(({ job }) => job.id === selectedJobId) ?? filteredJobs[0] ?? scoredJobs[0]
   const sources = Array.from(new Set(scoredJobs.map(({ job }) => job.sourcePlatform))).sort()
+  const externalSearchLinks = useMemo(
+    () => buildExternalJobSearchLinks(view.profile, view.activeCv),
+    [view.profile, view.activeCv],
+  )
   const activeFilterCount =
     filters.workModes.length +
     filters.jobTypes.length +
@@ -2775,6 +2947,18 @@ function JobDiscoveryPage() {
               <RefreshCw size={16} className={liveSearch.status === 'loading' ? 'animate-spin' : ''} />
               {liveSearch.status === 'loading' ? 'Searching…' : 'Run live search'}
             </button>
+            {externalSearchLinks.map((link) => (
+              <a
+                key={link.label}
+                href={link.href}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex h-11 items-center gap-2 rounded-xl border border-line bg-panel px-4 text-sm font-semibold text-ink transition hover:border-cyan/60 hover:text-cyan"
+              >
+                <ExternalLink size={16} />
+                {link.label}
+              </a>
+            ))}
           </div>
         </div>
 
@@ -3394,16 +3578,68 @@ function averageSkillRank(skills: CvSkill[]) {
 }
 
 function TrackerPage() {
+  const location = useLocation()
+  const navigate = useNavigate()
   const view = useWorkspaceView()
   const { applications, profile, activeCv, jobs } = view
   const updateApplicationStatus = useJobmatchStore((state) => state.updateApplicationStatus)
   const addCustomJobRecord = useJobmatchStore((state) => state.addCustomJobRecord)
   const [showCustomJobForm, setShowCustomJobForm] = useState(false)
+  const [capturedJob, setCapturedJob] = useState<CapturedJobDraft | null>(null)
+  const [extensionStatus, setExtensionStatus] = useState('Not connected')
   const savedJobIds = useMemo(
     () => applications.filter((a) => a.status === 'saved').map((a) => a.jobId),
     [applications],
   )
   const scoredJobs = useMemo(() => scoreJobs(profile, activeCv, jobs, savedJobIds), [profile, activeCv, jobs, savedJobIds])
+
+  useEffect(() => {
+    if (view.readOnly) return
+    const nextCapturedJob = takeCapturedJob(location.search)
+    if (!nextCapturedJob) return
+    setCapturedJob(nextCapturedJob)
+    setShowCustomJobForm(true)
+    if (new URLSearchParams(location.search).has('capture')) {
+      navigate('/tracker', { replace: true })
+    }
+  }, [location.search, navigate, view.readOnly])
+
+  useEffect(() => {
+    const listener = (event: MessageEvent) => {
+      if (event.source !== window || event.data?.type !== 'JOBMATCHER_EXTENSION_CONNECTED') return
+      setExtensionStatus(event.data.ok ? 'Connected' : event.data.error || 'Connection failed')
+    }
+    window.addEventListener('message', listener)
+    return () => window.removeEventListener('message', listener)
+  }, [])
+
+  const closeCustomJobForm = () => {
+    setShowCustomJobForm(false)
+    setCapturedJob(null)
+  }
+
+  const connectBrowserExtension = async () => {
+    setExtensionStatus('Connecting...')
+    try {
+      const client = requireSupabase()
+      const { data } = await client.auth.getSession()
+      const token = data.session?.access_token
+      if (!token) throw new Error('Please sign in again.')
+      window.postMessage(
+        {
+          type: 'JOBMATCHER_CONNECT_EXTENSION',
+          token,
+          appOrigin: getAppOrigin(),
+        },
+        getAppOrigin(),
+      )
+      window.setTimeout(() => {
+        setExtensionStatus((current) => (current === 'Connecting...' ? 'Install extension, then connect again' : current))
+      }, 1400)
+    } catch (error) {
+      setExtensionStatus(error instanceof Error ? error.message : 'Connection failed')
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -3416,7 +3652,13 @@ function TrackerPage() {
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           {!view.readOnly ? (
-            <button className="primary-button" onClick={() => setShowCustomJobForm(true)}>
+            <button
+              className="primary-button"
+              onClick={() => {
+                setCapturedJob(null)
+                setShowCustomJobForm(true)
+              }}
+            >
               <Plus size={16} />
               Add custom job record
             </button>
@@ -3427,6 +3669,28 @@ function TrackerPage() {
           </button>
         </div>
       </div>
+
+      {!view.readOnly ? (
+        <div className="panel flex flex-col gap-4 p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-cyan">LinkedIn automation</p>
+            <h3 className="mt-1 text-lg font-bold text-ink">Floating Save to Jobmatcher button</h3>
+            <p className="mt-1 max-w-2xl text-sm text-muted">
+              Connect once, then use the floating button on LinkedIn, Indeed, and Naukri job pages.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" className="primary-button h-11" onClick={() => void connectBrowserExtension()}>
+              <MousePointerClick size={16} />
+              Connect extension
+            </button>
+            <span className="rounded-lg border border-line bg-bg/70 px-3 py-2 text-xs font-semibold text-muted">
+              {extensionStatus}
+            </span>
+          </div>
+        </div>
+      ) : null}
+
       <KanbanBoard
         applications={applications}
         scoredJobs={scoredJobs}
@@ -3437,10 +3701,22 @@ function TrackerPage() {
         <CustomJobRecordModal
           profile={profile}
           activeCv={activeCv}
-          onClose={() => setShowCustomJobForm(false)}
+          initialValues={
+            capturedJob
+              ? {
+                  title: capturedJob.title,
+                  company: capturedJob.company,
+                  location: capturedJob.location || profile.location || 'Remote',
+                  applyUrl: capturedJob.applyUrl,
+                  description: capturedJob.description,
+                  sourcePlatform: capturedJob.sourcePlatform,
+                }
+              : undefined
+          }
+          onClose={closeCustomJobForm}
           onSave={(input) => {
             addCustomJobRecord(input)
-            setShowCustomJobForm(false)
+            closeCustomJobForm()
           }}
         />
       ) : null}
@@ -3499,16 +3775,19 @@ interface CustomJobRecordFormState {
   experienceMin: string
   experienceMax: string
   reminderDate: string
+  sourcePlatform: string
 }
 
 function CustomJobRecordModal({
   profile,
   activeCv,
+  initialValues,
   onClose,
   onSave,
 }: {
   profile: UserProfile
   activeCv: CvProfile
+  initialValues?: Partial<CustomJobRecordFormState>
   onClose: () => void
   onSave: (input: {
     title: string
@@ -3530,6 +3809,7 @@ function CustomJobRecordModal({
     experienceMin: number
     experienceMax: number
     reminderDate?: string
+    sourcePlatform?: string
   }) => void
 }) {
   const defaultSkills = [
@@ -3543,17 +3823,17 @@ function CustomJobRecordModal({
     .slice(0, 8)
 
   const [form, setForm] = useState<CustomJobRecordFormState>({
-    title: profile.targetRoles[0] || profile.targetRole || '',
-    company: '',
-    location: profile.location || 'Remote',
+    title: initialValues?.title || profile.targetRoles[0] || profile.targetRole || '',
+    company: initialValues?.company || '',
+    location: initialValues?.location || profile.location || 'Remote',
     country: profile.preferredCountries[0] || 'Remote',
     city: profile.preferredCities[0] || 'Remote',
     workMode: profile.remotePreference === 'hybrid' || profile.remotePreference === 'onsite' ? profile.remotePreference : 'remote',
     jobType: 'full_time',
     level: profile.experienceYears >= 8 ? 'lead' : profile.experienceYears >= 4 ? 'senior' : profile.experienceYears >= 1 ? 'mid' : 'entry',
     status: 'saved',
-    applyUrl: '',
-    description: '',
+    applyUrl: initialValues?.applyUrl || '',
+    description: initialValues?.description || '',
     notes: '',
     skillsText: Array.from(new Set(defaultSkills)).join(', '),
     salaryMin: profile.minimumSalary ? String(profile.minimumSalary) : '',
@@ -3562,6 +3842,7 @@ function CustomJobRecordModal({
     experienceMin: profile.experienceYears ? String(profile.experienceYears) : '',
     experienceMax: '',
     reminderDate: '',
+    sourcePlatform: initialValues?.sourcePlatform || 'Manual',
   })
   const [error, setError] = useState('')
 
@@ -3604,6 +3885,7 @@ function CustomJobRecordModal({
       experienceMin: clampPositiveInteger(form.experienceMin, 0, 60),
       experienceMax: clampPositiveInteger(form.experienceMax, 0, 60),
       reminderDate: form.reminderDate || undefined,
+      sourcePlatform: form.sourcePlatform,
     })
   }
 
