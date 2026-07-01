@@ -5,6 +5,7 @@ import {
   enforceRateLimit,
   handleOptions,
   parseSearchParams,
+  requireAuthenticatedCaller,
   requireMethod,
   sendError,
   sendJson,
@@ -49,6 +50,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
   try {
     requireMethod(req, ['GET'])
+    await requireAuthenticatedCaller(req)
     enforceRateLimit(req, 'live-jobs', 30, 60_000)
     const input = parseSearchParams(req, liveJobsQuerySchema)
     const skills = input.skills

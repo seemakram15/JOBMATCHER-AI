@@ -51,6 +51,14 @@ export default defineConfig(({ mode }) => {
               sendApiMiddlewareError(res, error)
             }
           })
+          server.middlewares.use('/api/job-cache', async (req, res) => {
+            try {
+              const { default: jobCacheHandler } = await import('./api/job-cache')
+              await jobCacheHandler(req, res)
+            } catch (error) {
+              sendApiMiddlewareError(res, error)
+            }
+          })
           server.middlewares.use('/api/auth-signup', async (req, res) => {
             try {
               const { default: authSignupHandler } = await import('./api/auth-signup')
@@ -81,12 +89,18 @@ export default defineConfig(({ mode }) => {
     build: {
       rollupOptions: {
         output: {
-          manualChunks: {
-            react: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query', 'zustand'],
-            charts: ['recharts'],
-            motion: ['framer-motion'],
-            dnd: ['@dnd-kit/core', '@dnd-kit/utilities'],
-            icons: ['lucide-react'],
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined
+            if (
+              /node_modules\/(react|react-dom|react-router-dom|@tanstack\/react-query|zustand)\//.test(id)
+            ) {
+              return 'react'
+            }
+            if (id.includes('node_modules/recharts/')) return 'charts'
+            if (id.includes('node_modules/framer-motion/')) return 'motion'
+            if (id.includes('node_modules/@dnd-kit/')) return 'dnd'
+            if (id.includes('node_modules/lucide-react/')) return 'icons'
+            return undefined
           },
         },
       },
