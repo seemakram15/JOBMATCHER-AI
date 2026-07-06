@@ -4,15 +4,10 @@ import { z } from 'zod'
 
 const rateBuckets = new Map<string, { count: number; resetAt: number }>()
 const defaultAllowedOrigins = new Set([
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'http://localhost:5174',
-  'http://127.0.0.1:5174',
-  'http://localhost:5175',
-  'http://127.0.0.1:5175',
   'http://localhost:3002',
   'http://127.0.0.1:3002',
-  'https://myjobmatcher.vercel.app',
+  'https://jobmatcher.qzz.io',
+  'https://www.jobmatcher.qzz.io',
 ])
 
 export class ApiError extends Error {
@@ -158,7 +153,11 @@ export function assertSafeContentType(req: IncomingMessage, expected: string) {
 
 function getAllowedOrigins() {
   const origins = new Set(defaultAllowedOrigins)
-  for (const value of [process.env.VITE_APP_URL, process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '']) {
+  for (const value of [
+    process.env.APP_URL,
+    process.env.VITE_APP_URL,
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '',
+  ]) {
     if (value) origins.add(value.replace(/\/$/, ''))
   }
   return origins

@@ -10,7 +10,8 @@
   "host_permissions": [
     "http://127.0.0.1:3002/*",
     "http://localhost:3002/*",
-    "https://myjobmatcher.vercel.app/*",
+    "https://jobmatcher.qzz.io/*",
+    "https://www.jobmatcher.qzz.io/*",
     "https://linkedin.com/*",
     "https://www.linkedin.com/*",
     "https://www.linkedin.com/jobs/*",
@@ -31,7 +32,8 @@
       "matches": [
         "http://127.0.0.1:3002/*",
         "http://localhost:3002/*",
-        "https://myjobmatcher.vercel.app/*"
+        "https://jobmatcher.qzz.io/*",
+        "https://www.jobmatcher.qzz.io/*"
       ],
       "js": ["connect.js"],
       "run_at": "document_idle"

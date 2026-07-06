@@ -272,7 +272,7 @@ function buildExternalJobSearchLinks(profile: UserProfile, activeCv: CvProfile) 
 }
 
 function getAppOrigin() {
-  if (typeof window === 'undefined') return 'https://myjobmatcher.vercel.app'
+  if (typeof window === 'undefined') return 'https://jobmatcher.qzz.io'
   return window.location.origin
 }
 
