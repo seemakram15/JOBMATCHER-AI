@@ -1,4 +1,4 @@
-const productionAppUrl = 'https://myjobmatcher.vercel.app'
+const productionAppUrl = 'https://jobmatcher.qzz.io'
 const developmentAppUrl = 'http://localhost:3002'
 
 export function getAppBaseUrl() {

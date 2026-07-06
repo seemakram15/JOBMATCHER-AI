@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { Client } from 'pg'
 import { z } from 'zod'
 import { sanitiseText } from '../src/lib/security.js'
+import { getAppBaseUrl } from './app-url.js'
 import {
   ApiError,
   enforceRateLimit,
@@ -113,7 +114,8 @@ async function createUnconfirmedUserWithConfirmation(
     auth: { persistSession: false, autoRefreshToken: false },
   })
 
-  const redirectTo = `${appBaseUrl(req)}/auth?mode=confirm`
+  const appUrl = getAppBaseUrl(req)
+  const redirectTo = `${appUrl}/auth?mode=confirm`
   const { data, error } = await admin.auth.admin.generateLink({
     type: 'signup',
     email,
@@ -147,7 +149,7 @@ async function createUnconfirmedUserWithConfirmation(
   confirmUrl.searchParams.set('type', 'signup')
   confirmUrl.searchParams.set('token_hash', tokenHash)
 
-  await sendConfirmationEmail(brevo, user.email, name, confirmUrl.toString())
+  await sendConfirmationEmail(brevo, user.email, name, confirmUrl.toString(), appUrl)
 
   return { id: user.id, email: user.email }
 }
@@ -427,18 +429,7 @@ function isPostgresUniqueViolation(error: unknown) {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505'
 }
 
-const PROD_APP_URL = 'https://myjobmatcher.vercel.app'
-const DEV_APP_URL = 'http://localhost:3002'
 const BREVO_ENDPOINT = 'https://api.brevo.com/v3/smtp/email'
-
-function appBaseUrl(req: IncomingMessage) {
-  const header = req.headers['x-forwarded-host'] || req.headers.host
-  const host = Array.isArray(header) ? header[0] : header
-  if (host && /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?$/.test(host)) return DEV_APP_URL
-  const configured = (process.env.APP_URL || process.env.VITE_APP_URL || '').trim().replace(/\/+$/, '')
-  if (configured && !/dummy|placeholder/i.test(configured)) return configured
-  return process.env.NODE_ENV === 'production' ? PROD_APP_URL : DEV_APP_URL
-}
 
 interface BrevoConfig {
   apiKey: string
@@ -481,12 +472,12 @@ async function sendBrevoEmail(
   }
 }
 
-async function sendConfirmationEmail(brevo: BrevoConfig, email: string, name: string, confirmUrl: string) {
+async function sendConfirmationEmail(brevo: BrevoConfig, email: string, name: string, confirmUrl: string, appUrl: string) {
   const firstName = escapeHtml((name || '').split(' ')[0] || 'there')
   await sendBrevoEmail(brevo, {
     to: email,
     subject: 'Confirm your Jobmatcher email',
-    html: buildConfirmationHtml(firstName, escapeHtml(confirmUrl)),
+    html: buildConfirmationHtml(firstName, escapeHtml(confirmUrl), escapeHtml(`${appUrl}/jobmatcher-logo.svg`)),
     text: `Hi ${firstName},\n\nConfirm your email to activate your Jobmatcher account:\n${confirmUrl}\n\nIf you didn't create this account, you can safely ignore this email.\n\nJobmatcher — Upload. Match. Apply smarter.`,
     tag: 'confirm-email',
   })
@@ -495,19 +486,19 @@ async function sendConfirmationEmail(brevo: BrevoConfig, email: string, name: st
 async function sendWelcomeEmail(email: string, name: string, req: IncomingMessage) {
   const brevo = getBrevoConfig()
   if (!brevo) return
-  const signInUrl = `${appBaseUrl(req)}/auth?mode=signin`
+  const appUrl = getAppBaseUrl(req)
+  const signInUrl = `${appUrl}/auth?mode=signin`
   const firstName = escapeHtml((name || '').split(' ')[0] || 'there')
   await sendBrevoEmail(brevo, {
     to: email,
     subject: 'Welcome to Jobmatcher — your account is ready',
-    html: buildWelcomeHtml(firstName, escapeHtml(signInUrl)),
+    html: buildWelcomeHtml(firstName, escapeHtml(signInUrl), escapeHtml(`${appUrl}/jobmatcher-logo.svg`)),
     text: `Hi ${firstName},\n\nYour Jobmatcher account is ready. Sign in to upload your CV and start matching:\n${signInUrl}\n\nJobmatcher — Upload. Match. Apply smarter.`,
     tag: 'welcome',
   })
 }
 
-function buildConfirmationHtml(firstName: string, confirmUrl: string) {
-  const logo = escapeHtml(`${PROD_APP_URL}/jobmatcher-logo.svg`)
+function buildConfirmationHtml(firstName: string, confirmUrl: string, logo: string) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Confirm your Jobmatcher email</title></head>
 <body style="margin:0;background:#f4f7fb;font-family:Inter,Segoe UI,Arial,sans-serif;color:#111827;">
@@ -534,8 +525,7 @@ function buildConfirmationHtml(firstName: string, confirmUrl: string) {
 </body></html>`
 }
 
-function buildWelcomeHtml(firstName: string, signInUrl: string) {
-  const logo = escapeHtml(`${PROD_APP_URL}/jobmatcher-logo.svg`)
+function buildWelcomeHtml(firstName: string, signInUrl: string, logo: string) {
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Welcome to Jobmatcher</title></head>
 <body style="margin:0;background:#f4f7fb;font-family:Inter,Segoe UI,Arial,sans-serif;color:#111827;">

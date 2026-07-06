@@ -10,11 +10,9 @@ import {
   sendJson,
   setCors,
 } from './security.js'
+import { getAppBaseUrl } from './app-url.js'
 
-const productionAppUrl = 'https://myjobmatcher.vercel.app'
-const developmentAppUrl = 'http://localhost:3002'
 const brevoEndpoint = 'https://api.brevo.com/v3/smtp/email'
-const emailLogoUrl = `${productionAppUrl}/jobmatcher-logo.svg`
 
 const resetSchema = z.object({
   email: z.string().trim().email('Enter a valid email.').max(254),
@@ -26,6 +24,7 @@ interface ResetEmailConfig {
   brevoApiKey: string
   senderEmail: string
   senderName: string
+  appUrl: string
   redirectTo: string
 }
 
@@ -97,7 +96,7 @@ async function sendPasswordResetEmail(email: string, req: IncomingMessage) {
     senderName: config.senderName,
     toEmail: email,
     subject: 'Reset your Jobmatcher password',
-    htmlContent: buildPasswordResetHtml(resetLink),
+    htmlContent: buildPasswordResetHtml(resetLink, `${config.appUrl}/jobmatcher-logo.svg`),
     textContent: buildPasswordResetText(resetLink),
   })
 }
@@ -148,6 +147,7 @@ function getResetEmailConfig(req: IncomingMessage): ResetEmailConfig {
     brevoApiKey,
     senderEmail,
     senderName,
+    appUrl,
     redirectTo: `${appUrl}/auth?mode=recovery`,
   }
 }
@@ -194,9 +194,9 @@ async function sendBrevoEmail(input: {
   }
 }
 
-function buildPasswordResetHtml(resetLink: string) {
+function buildPasswordResetHtml(resetLink: string, logoUrl: string) {
   const safeLink = escapeHtml(resetLink)
-  const safeLogoUrl = escapeHtml(emailLogoUrl)
+  const safeLogoUrl = escapeHtml(logoUrl)
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -272,17 +272,6 @@ function buildPasswordResetText(resetLink: string) {
   ].join('\n')
 }
 
-function getAppBaseUrl(req: IncomingMessage) {
-  const configured = normaliseUrl(process.env.APP_URL || process.env.VITE_APP_URL)
-  if (configured && (process.env.NODE_ENV !== 'production' || !isLocalhost(configured))) return configured
-
-  const forwardedHost = firstHeaderValue(req.headers['x-forwarded-host'])
-  const host = forwardedHost || firstHeaderValue(req.headers.host)
-  if (host && isLocalHostHeader(host)) return developmentAppUrl
-
-  return process.env.NODE_ENV === 'production' ? productionAppUrl : developmentAppUrl
-}
-
 function buildAppRecoveryLink(redirectTo: string, tokenHash: string) {
   try {
     const url = new URL(redirectTo)
@@ -305,23 +294,6 @@ function normaliseUrl(value: unknown) {
   } catch {
     return ''
   }
-}
-
-function isLocalhost(value: string) {
-  try {
-    return ['localhost', '127.0.0.1', '0.0.0.0'].includes(new URL(value).hostname)
-  } catch {
-    return false
-  }
-}
-
-function isLocalHostHeader(host: string) {
-  const hostname = host.split(':')[0]
-  return ['localhost', '127.0.0.1', '0.0.0.0'].includes(hostname)
-}
-
-function firstHeaderValue(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value
 }
 
 function isUsableSecret(value: string | undefined) {
