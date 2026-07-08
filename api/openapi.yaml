@@ -4,8 +4,25 @@ info:
   version: 0.1.0
   description: Initial API contract scaffolded from the JobMatch AI PRD.
 servers:
-  - url: https://api.jobmatch.ai/v1
+  - url: https://jobmatcher.qzz.io/api
 paths:
+  /auth-login:
+    post:
+      summary: Sign in with server-side rate limiting.
+      description: Verifies credentials through Supabase Auth and returns a browser session token pair after IP/email throttles pass.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Signin succeeded.
+        '401':
+          description: Invalid credentials.
+        '429':
+          description: Too many attempts.
   /auth/register:
     post:
       summary: Create a user account.
@@ -31,6 +48,44 @@ paths:
       responses:
         '202':
           description: Reset request accepted without exposing whether the account exists.
+  /delete-account:
+    post:
+      summary: Permanently delete the authenticated user account.
+      description: Requires a bearer session, current password, matching email, and DELETE confirmation text.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteAccountRequest'
+      responses:
+        '200':
+          description: Account deleted.
+        '401':
+          description: Missing, expired, or invalid credentials.
+        '429':
+          description: Too many deletion attempts.
+  /account-profile:
+    patch:
+      summary: Update the authenticated user's account profile.
+      description: Updates name, login email, and avatar. Changing email requires the current password.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountProfileRequest'
+      responses:
+        '200':
+          description: Account profile updated.
+        '401':
+          description: Missing, expired, or invalid credentials.
+        '429':
+          description: Too many update attempts.
   /cv/upload:
     post:
       summary: Upload a PDF or DOCX CV and queue AI parsing.
@@ -101,7 +156,22 @@ paths:
         '200':
           description: Health snapshot.
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Supabase JWT
   schemas:
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 1
     RegisterRequest:
       type: object
       required: [email, password, name]
@@ -121,6 +191,36 @@ components:
         email:
           type: string
           format: email
+    DeleteAccountRequest:
+      type: object
+      required: [email, password, confirmation]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 1
+        confirmation:
+          type: string
+          enum: [DELETE]
+    AccountProfileRequest:
+      type: object
+      required: [name, email]
+      properties:
+        name:
+          type: string
+          maxLength: 160
+        email:
+          type: string
+          format: email
+        avatarUrl:
+          type: string
+          nullable: true
+          description: HTTPS URL or resized image data URL.
+        currentPassword:
+          type: string
+          description: Required when changing email.
     Error:
       type: object
       properties:

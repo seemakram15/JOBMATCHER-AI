@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { z } from 'zod'
@@ -58,7 +59,21 @@ export function requireMethod(req: IncomingMessage, methods: string[]) {
 
 export function enforceRateLimit(req: IncomingMessage, route: string, maxRequests: number, windowMs: number) {
   const ip = getClientIp(req)
-  const key = `${route}:${ip}`
+  enforceRateLimitForBucket(`${route}:ip:${hashRateLimitPart(ip)}`, maxRequests, windowMs)
+}
+
+export function enforceRateLimitByKey(
+  req: IncomingMessage,
+  route: string,
+  keyPart: string,
+  maxRequests: number,
+  windowMs: number,
+) {
+  const ip = getClientIp(req)
+  enforceRateLimitForBucket(`${route}:ip-key:${hashRateLimitPart(`${ip}:${keyPart}`)}`, maxRequests, windowMs)
+}
+
+function enforceRateLimitForBucket(key: string, maxRequests: number, windowMs: number) {
   const now = Date.now()
   const bucket = rateBuckets.get(key)
 
@@ -71,6 +86,10 @@ export function enforceRateLimit(req: IncomingMessage, route: string, maxRequest
   if (bucket.count > maxRequests) {
     throw new ApiError(429, 'RATE_LIMITED', 'Too many requests. Try again shortly.')
   }
+}
+
+function hashRateLimitPart(value: string) {
+  return createHash('sha256').update(value || 'unknown').digest('hex').slice(0, 24)
 }
 
 export function sendJson(res: ServerResponse, status: number, payload: unknown) {
@@ -249,8 +268,21 @@ export async function requireAuthenticatedCaller(req: IncomingMessage): Promise<
     throw new ApiError(401, 'UNAUTHENTICATED', 'Invalid or expired session.')
   }
 
+  const { data: profile, error: profileError } = await client
+    .from('users')
+    .select('id, email, is_active')
+    .eq('id', data.user.id)
+    .single()
+
+  if (profileError || !profile) {
+    throw new ApiError(403, 'FORBIDDEN', 'Account profile not found.')
+  }
+  if (!profile.is_active) {
+    throw new ApiError(403, 'FORBIDDEN', 'Account is inactive.')
+  }
+
   return {
-    id: data.user.id,
-    email: data.user.email || '',
+    id: profile.id as string,
+    email: (profile.email as string) || data.user.email || '',
   }
 }

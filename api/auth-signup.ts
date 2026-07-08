@@ -378,6 +378,7 @@ function defaultProfile(id: string, email: string, name: string) {
     id,
     email,
     name,
+    avatar_url: null,
     role: 'job_seeker',
     location: 'Remote',
     target_role: '',

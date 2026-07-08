@@ -64,8 +64,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const avoidKeywords = cleanCsv(input.avoidKeywords, 30, 80)
     const preferredCountries = cleanCsv(input.preferredCountries, 8, 80)
     const preferredCities = cleanCsv(input.preferredCities, 12, 80)
+    const searchQuery = targetRoles[0] || input.query || 'software engineer'
     const result = await fetchLiveJobs({
-      query: input.query || skills.join(' ') || 'software engineer',
+      query: searchQuery,
       location: input.location,
       skills,
       targetRoles,

@@ -6,6 +6,7 @@ const sampleProfile: UserProfile = {
   id: 'user-test',
   email: 'test@example.com',
   name: 'Test User',
+  avatarUrl: '',
   role: 'job_seeker',
   headline: '',
   location: 'Remote',

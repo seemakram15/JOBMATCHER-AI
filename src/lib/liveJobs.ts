@@ -119,18 +119,76 @@ const mandatoryPlatformSearchTargets: PlatformSearchTarget[] = [
   },
 ]
 
-const groupedPlatformSearchTargets: PlatformSearchTarget[] = [
+const additionalPlatformSearchTargets: PlatformSearchTarget[] = [
   {
-    name: 'Remote job boards',
-    siteQuery:
-      '(site:remotejobsfinder.co OR site:hubstafftalent.net/search/jobs OR site:jobspresso.co/remote-work OR site:remotive.com OR site:skipthedrive.com OR site:workew.com/remote-jobs OR site:dynamitejobs.com/remote-jobs)',
-    resultLimit: 20,
+    name: 'RemoteJobsFinder',
+    siteQuery: '(site:remotejobsfinder.co/en/search OR site:remotejobsfinder.co)',
+    resultLimit: 10,
   },
   {
-    name: 'Career job boards',
-    siteQuery:
-      '(site:instahyre.com/job OR site:monster.com/job-openings OR site:monsterindia.com/job OR site:careercloud.com/jobs OR site:dice.com/job-detail OR site:careerbuilder.com/job OR site:jibberjobber.com/jobs OR site:glassdoor.com/job-listing)',
-    resultLimit: 20,
+    name: 'Hubstaff Talent',
+    siteQuery: '(site:hubstafftalent.net/search/jobs OR site:hubstafftalent.net/jobs)',
+    resultLimit: 10,
+  },
+  {
+    name: 'Jobspresso',
+    siteQuery: '(site:jobspresso.co/remote-work OR site:jobspresso.co/job)',
+    resultLimit: 10,
+  },
+  {
+    name: 'Remotive Board',
+    siteQuery: '(site:remotive.com/remote-jobs OR site:remotive.com/remote-jobs/*)',
+    resultLimit: 10,
+  },
+  {
+    name: 'SkipTheDrive',
+    siteQuery: '(site:skipthedrive.com/job OR site:skipthedrive.com)',
+    resultLimit: 10,
+  },
+  {
+    name: 'Workew',
+    siteQuery: '(site:workew.com/remote-jobs OR site:workew.com/job)',
+    resultLimit: 10,
+  },
+  {
+    name: 'Dynamite Jobs',
+    siteQuery: '(site:dynamitejobs.com/remote-jobs OR site:dynamitejobs.com/job)',
+    resultLimit: 10,
+  },
+  {
+    name: 'Instahyre',
+    siteQuery: '(site:instahyre.com/job OR site:instahyre.com/jobs)',
+    resultLimit: 10,
+  },
+  {
+    name: 'Monster',
+    siteQuery: '(site:monster.com/job-openings OR site:monsterindia.com/job)',
+    resultLimit: 10,
+  },
+  {
+    name: 'CareerCloud',
+    siteQuery: '(site:careercloud.com/jobs OR site:careercloud.com/job)',
+    resultLimit: 10,
+  },
+  {
+    name: 'Dice',
+    siteQuery: '(site:dice.com/job-detail OR site:dice.com/jobs)',
+    resultLimit: 10,
+  },
+  {
+    name: 'CareerBuilder',
+    siteQuery: '(site:careerbuilder.com/job OR site:careerbuilder.com/jobs)',
+    resultLimit: 10,
+  },
+  {
+    name: 'JibberJobber',
+    siteQuery: '(site:jibberjobber.com/jobs OR site:jibberjobber.com/job)',
+    resultLimit: 10,
+  },
+  {
+    name: 'Glassdoor',
+    siteQuery: '(site:glassdoor.com/job-listing OR site:glassdoor.com/Job)',
+    resultLimit: 10,
   },
 ]
 
@@ -211,11 +269,10 @@ function buildSearchProfile(input: LiveJobSearchInput): SearchProfile {
     skills.filter((skill) => !coreSkillTerms.includes(skill) && !broadSkillTerms.includes(skill)),
   )
   const roleQuery = buildRoleQuery(targetRoles, roleTerms, rawQuery)
-  const strongestSkills = buildSourceSkillTerms(mustHaveSkills, coreSkillTerms, secondarySkillTerms)
   const strictRoleQuery = buildStrictRoleQuery(targetRoles, roleTerms, rawQuery)
 
   return {
-    sourceQuery: [roleQuery || strictRoleQuery, ...strongestSkills.slice(0, 4)].filter(Boolean).join(' '),
+    sourceQuery: roleQuery || strictRoleQuery || rawQuery || 'software engineer',
     rawQuery,
     strictRoleQuery,
     roleTerms,
@@ -238,13 +295,6 @@ function buildRoleQuery(targetRoles: string[], roleTerms: string[], rawQuery: st
   if (roleTerms.length) return roleTerms.join(' ')
   if (hasRoleLanguage(rawQuery)) return rawQuery
   return ''
-}
-
-function buildSourceSkillTerms(mustHaveSkills: string[], coreSkillTerms: string[], secondarySkillTerms: string[]) {
-  const supportSkills = [...coreSkillTerms, ...secondarySkillTerms].filter(
-    (skill) => !mustHaveSkills.some((mustHave) => skillsEquivalent(skill, mustHave)),
-  )
-  return dedupeTerms([...mustHaveSkills.slice(0, 3), ...supportSkills.slice(0, 4)])
 }
 
 function buildStrictRoleQuery(targetRoles: string[], roleTerms: string[], rawQuery: string) {
@@ -446,7 +496,7 @@ async function fetchSerpApiOrganicJobs(
 
 function buildPlatformSourceTasks(search: SearchProfile, input: LiveJobSearchInput, apiKey?: string) {
   if (!apiKey) return []
-  return [...mandatoryPlatformSearchTargets, ...groupedPlatformSearchTargets].map((target) => ({
+  return [...mandatoryPlatformSearchTargets, ...additionalPlatformSearchTargets].map((target) => ({
     name: target.name,
     task: fetchSerpApiPlatformJobs(search, input, apiKey, target),
   }))
@@ -558,11 +608,7 @@ function buildPlatformSearchQuery(search: SearchProfile, location: string, siteQ
   const rolePhrase = role.includes(' ') ? `"${role}"` : role
   const locationTerm = /^remote$/i.test(location) ? '(remote OR anywhere)' : `"${location}"`
   const experienceTerms = buildExperienceSearchTerms(search.experienceYears)
-  const mustHaveTerms = search.mustHaveSkillTerms
-    .slice(0, 3)
-    .map((skill) => (skill.includes(' ') ? `"${skill}"` : skill))
-    .join(' ')
-  return [rolePhrase, mustHaveTerms, '(job OR jobs OR hiring OR opening OR vacancy)', experienceTerms, locationTerm, siteQuery]
+  return [rolePhrase, '(job OR jobs OR hiring OR opening OR vacancy)', experienceTerms, locationTerm, siteQuery]
     .filter(Boolean)
     .join(' ')
     .slice(0, 520)

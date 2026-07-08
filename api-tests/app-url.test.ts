@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { developmentAppUrl, productionAppUrl, resolveAppBaseUrl } from './app-url'
+import { developmentAppUrl, productionAppUrl, resolveAppBaseUrl } from '../api/app-url'
 
 describe('server app URL resolver', () => {
   it('uses the local app URL for local development requests', () => {

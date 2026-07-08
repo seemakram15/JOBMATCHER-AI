@@ -64,7 +64,9 @@ interface JobmatchState {
   signIn: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
   requestPasswordReset: (email: string) => Promise<void>
+  updateAccountProfile: (input: { name: string; email: string; avatarUrl: string; currentPassword?: string }) => Promise<void>
   updatePassword: (newPassword: string, currentPassword?: string) => Promise<void>
+  deleteAccount: (password: string, confirmation: string) => Promise<void>
   clearRecoveryMode: () => void
   viewAsUser: (userId: string) => Promise<void>
   exitImpersonation: () => void
@@ -169,7 +171,48 @@ const emptyState = {
 
 const initialState = emptyState
 
-export const useJobmatchStore = create<JobmatchState>((set) => ({
+interface AuthLoginResponse {
+  user?: { id: string; email?: string }
+  session?: {
+    access_token?: string
+    refresh_token?: string
+  }
+  error?: { message?: string }
+}
+
+async function signInWithServerRateLimit(email: string, password: string) {
+  const client = requireSupabase()
+  const response = await fetch('/api/auth-login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email.trim(), password }),
+  })
+
+  const payload = (await response.json().catch(() => null)) as AuthLoginResponse | null
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || 'Invalid email or password.')
+  }
+
+  const accessToken = payload?.session?.access_token
+  const refreshToken = payload?.session?.refresh_token
+  if (!accessToken || !refreshToken) {
+    throw new Error('Signin did not return a valid session.')
+  }
+
+  const { data, error } = await client.auth.setSession({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+  })
+  if (error) throw error
+
+  return {
+    user: data.user
+      ? { id: data.user.id, email: data.user.email || payload?.user?.email || '' }
+      : payload?.user,
+  }
+}
+
+export const useJobmatchStore = create<JobmatchState>((set, get) => ({
   ...initialState,
   initializeAuth: async () => {
     if (!hasSupabaseConfig || !supabase) {
@@ -284,7 +327,7 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
     }
   },
   signUp: async (email, password, name) => {
-    const client = requireSupabase()
+    requireSupabase()
     set({ authStatus: 'loading', authMessage: '' })
 
     const response = await fetch('/api/auth-signup', {
@@ -307,23 +350,21 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
       return { confirmationRequired: true }
     }
 
-    const { data, error } = await client.auth.signInWithPassword({ email, password })
-    if (error) {
-      set({ authStatus: 'error', authMessage: error.message })
-      throw error
-    }
-    if (data.user) await loadWorkspaceForUser(data.user.id, data.user.email || email)
+    const { user } = await signInWithServerRateLimit(email, password)
+    if (user) await loadWorkspaceForUser(user.id, user.email || email)
     return { confirmationRequired: false }
   },
   signIn: async (email, password) => {
-    const client = requireSupabase()
+    requireSupabase()
     set({ authStatus: 'loading', authMessage: '' })
-    const { data, error } = await client.auth.signInWithPassword({ email, password })
-    if (error) {
-      set({ authStatus: 'error', authMessage: error.message })
+    try {
+      const { user } = await signInWithServerRateLimit(email, password)
+      if (user) await loadWorkspaceForUser(user.id, user.email || email)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Signin failed.'
+      set({ authStatus: 'error', authMessage: message })
       throw error
     }
-    if (data.user) await loadWorkspaceForUser(data.user.id, data.user.email || email)
   },
   signOut: async () => {
     if (supabase) await supabase.auth.signOut()
@@ -342,6 +383,41 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
       throw new Error(message)
     }
   },
+  updateAccountProfile: async (input) => {
+    const client = requireSupabase()
+    const { data, error } = await client.auth.getSession()
+    if (error) throw error
+    const token = data.session?.access_token
+    if (!token) throw new Error('You must be signed in to update your profile.')
+
+    const response = await fetch('/api/account-profile', {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(input),
+    })
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
+      throw new Error(payload?.error?.message || 'Profile update failed.')
+    }
+
+    const payload = (await response.json()) as {
+      profile?: Pick<UserProfile, 'id' | 'email' | 'name' | 'avatarUrl'>
+    }
+    if (!payload.profile) throw new Error('Profile update failed.')
+
+    set((state) => ({
+      profile: {
+        ...state.profile,
+        email: payload.profile?.email || state.profile.email,
+        name: payload.profile?.name || state.profile.name,
+        avatarUrl: payload.profile?.avatarUrl ?? state.profile.avatarUrl,
+      },
+    }))
+  },
   updatePassword: async (newPassword, currentPassword) => {
     const client = requireSupabase()
 
@@ -350,12 +426,40 @@ export const useJobmatchStore = create<JobmatchState>((set) => ({
     if (currentPassword) {
       const email = useJobmatchStore.getState().profile.email
       if (!email) throw new Error('No account email on file to verify your current password.')
-      const { error: verifyError } = await client.auth.signInWithPassword({ email, password: currentPassword })
-      if (verifyError) throw new Error('Current password is incorrect.')
+      await signInWithServerRateLimit(email, currentPassword)
     }
 
     const { error } = await client.auth.updateUser({ password: newPassword })
     if (error) throw error
+  },
+  deleteAccount: async (password, confirmation) => {
+    const client = requireSupabase()
+    const state = get()
+    const { data, error } = await client.auth.getSession()
+    if (error) throw error
+    const token = data.session?.access_token
+    if (!token) throw new Error('You must be signed in to delete your account.')
+
+    const response = await fetch('/api/delete-account', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: state.profile.email,
+        password,
+        confirmation,
+      }),
+    })
+
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
+      throw new Error(payload?.error?.message || 'Account deletion failed.')
+    }
+
+    await client.auth.signOut().catch(() => undefined)
+    resetWorkspace(set, 'unauthenticated')
   },
   clearRecoveryMode: () => set({ recoveryMode: false }),
   viewAsUser: async (userId) => {

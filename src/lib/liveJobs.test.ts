@@ -147,7 +147,7 @@ describe('live job relevance filtering', () => {
     expect(results.map((result) => result.title)).toEqual(['React Frontend Engineer'])
   })
 
-  it('builds source queries from the main role, must-have skills, and ranked CV Hub skills', () => {
+  it('builds source queries from the target role only while keeping skills for scoring', () => {
     const explanation = explainLiveJobRelevance(
       job({
         title: 'Frontend Platform Engineer',
@@ -171,11 +171,42 @@ describe('live job relevance filtering', () => {
       },
     )
 
-    expect(explanation.search.sourceQuery).toContain('Frontend Engineer')
-    expect(explanation.search.sourceQuery).toContain('React')
-    expect(explanation.search.sourceQuery).toContain('TypeScript')
-    expect(explanation.search.sourceQuery).toContain('GraphQL')
+    expect(explanation.search.sourceQuery).toBe('Frontend Engineer')
+    expect(explanation.search.mustHaveSkillTerms).toContain('React')
+    expect(explanation.search.coreSkillTerms).toContain('TypeScript')
+    expect(explanation.search.coreSkillTerms).toContain('GraphQL')
     expect(explanation.relevance.accept).toBe(true)
+  })
+
+  it('can run a role-only search without broadening upstream queries with CV skills', () => {
+    const results = filterRelevantJobsForSearch(
+      [
+        job({
+          title: 'Ruby on Rails Developer',
+          description: 'Build marketplace products and backend services.',
+          experienceMin: 4,
+          experienceMax: 7,
+          level: 'senior',
+        }),
+        job({
+          title: 'Data Entry Assistant',
+          description: 'Admin research work with spreadsheets.',
+          level: 'entry',
+        }),
+      ],
+      {
+        query: 'Ruby on Rails',
+        targetRoles: ['Ruby on Rails'],
+        skills: [],
+        preferredCountries: ['Remote'],
+        preferredCities: ['Remote'],
+        remotePreference: 'remote',
+        experienceYears: 6,
+        limit: 10,
+      },
+    )
+
+    expect(results.map((result) => result.title)).toEqual(['Ruby on Rails Developer'])
   })
 
   it('keeps job titles restricted while allowing a 7-year user to see 4-7 year Rails roles', () => {

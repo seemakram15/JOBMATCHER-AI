@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import {
   Activity,
@@ -231,22 +232,13 @@ interface CapturedJobDraft {
   sourcePlatform: string
 }
 
-function buildExternalJobSearchLinks(profile: UserProfile, activeCv: CvProfile) {
-  const rankedCvSkills = [...activeCv.skills]
-    .sort((a, b) => (b.skillRank || 0) - (a.skillRank || 0))
-    .map((skill) => skill.skillName)
-    .filter(Boolean)
-    .slice(0, 8)
-  const targetRoles = usefulPreferenceTerms(profile.targetRoles).length ? usefulPreferenceTerms(profile.targetRoles) : [profile.targetRole]
-  const query = [
-    targetRoles[0],
-    ...usefulPreferenceTerms(profile.mustHaveSkills).slice(0, 3),
-    ...profileSearchSkills(profile, rankedCvSkills).slice(0, 3),
-  ]
-    .filter(Boolean)
-    .join(' ')
-  const years = Math.max(Number(profile.experienceYears) || 0, Number(activeCv.totalYearsExperience) || 0)
-  const keywordQuery = [query || 'software engineer', years ? `${Math.max(1, years - 3)} ${years} years` : ''].filter(Boolean).join(' ')
+function primaryTargetRole(profile: UserProfile) {
+  return (usefulPreferenceTerms(profile.targetRoles)[0] || profile.targetRole || '').trim()
+}
+
+function buildExternalJobSearchLinks(profile: UserProfile) {
+  const keywordQuery = primaryTargetRole(profile)
+  if (!keywordQuery) return []
   const location = profileSearchLocation(profile)
   const encodedQuery = encodeURIComponent(keywordQuery)
   const encodedLocation = encodeURIComponent(location || 'Remote')
@@ -267,6 +259,34 @@ function buildExternalJobSearchLinks(profile: UserProfile, activeCv: CvProfile) 
     {
       label: 'Naukri',
       href: `https://www.naukri.com/${naukriSlug || 'software-engineer'}-jobs?k=${encodedQuery}&l=${encodedLocation}`,
+    },
+    {
+      label: 'RemoteJobsFinder',
+      href: `https://remotejobsfinder.co/en/search?q=${encodedQuery}`,
+    },
+    {
+      label: 'Hubstaff',
+      href: `https://hubstafftalent.net/search/jobs?search%5Bkeywords%5D=${encodedQuery}`,
+    },
+    {
+      label: 'Jobspresso',
+      href: `https://jobspresso.co/remote-work/?search_keywords=${encodedQuery}`,
+    },
+    {
+      label: 'Remotive',
+      href: `https://remotive.com/remote-jobs/search?search=${encodedQuery}`,
+    },
+    {
+      label: 'SkipTheDrive',
+      href: `https://www.skipthedrive.com/?s=${encodedQuery}`,
+    },
+    {
+      label: 'Workew',
+      href: `https://workew.com/remote-jobs/?search_keywords=${encodedQuery}`,
+    },
+    {
+      label: 'Dynamite',
+      href: `https://dynamitejobs.com/remote-jobs/?search=${encodedQuery}`,
     },
   ]
 }
@@ -643,17 +663,29 @@ const JOB_SOURCES = [
   'Google Jobs',
   'LinkedIn',
   'Indeed',
+  'Naukri',
   'Adzuna',
   'Jooble',
   'RemoteOK',
-  'We Work Remotely',
+  'Remotive',
+  'RemoteJobsFinder',
+  'Hubstaff Talent',
+  'Jobspresso',
+  'SkipTheDrive',
+  'Workew',
+  'Dynamite Jobs',
+  'Instahyre',
+  'Monster',
+  'CareerCloud',
+  'Dice',
+  'CareerBuilder',
+  'JibberJobber',
   'Glassdoor',
-  'Apify',
-  'RapidAPI',
+  'Career pages',
 ]
 
 const LANDING_STATS = [
-  { value: 6, suffix: '', label: 'Live job sources wired in' },
+  { value: 22, suffix: '+', label: 'Live job sources wired in' },
   { value: 8, suffix: '', label: 'Connected workspace modules' },
   { value: 4, suffix: '', label: 'CV formats parsed locally' },
   { value: 100, suffix: '%', label: 'Scoped to your own account' },
@@ -1212,7 +1244,7 @@ const AUTH_HIGHLIGHTS = [
 ]
 
 const AUTH_STATS = [
-  { value: '6', label: 'Live sources' },
+  { value: '22+', label: 'Live sources' },
   { value: '8', label: 'Modules' },
   { value: '100%', label: 'Yours' },
 ]
@@ -1901,8 +1933,12 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 ) : null}
               </NavLink>
               <div className="hidden items-center gap-3 rounded-xl border border-line bg-panel px-3 py-1.5 sm:flex">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary">
-                  <UserRound size={16} />
+                <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-lg bg-primary/15 text-primary">
+                  {profile.avatarUrl ? (
+                    <img src={profile.avatarUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <UserRound size={16} />
+                  )}
                 </span>
                 <div className="leading-tight">
                   <p className="text-sm font-medium text-ink">{profile.name}</p>
@@ -2007,17 +2043,17 @@ function useLiveJobSearch() {
       .filter(Boolean)
       .slice(0, 20)
     const skills = profileSearchSkills(profile, rankedCvSkills).slice(0, 30)
-    if (!skills.length) {
+    const targetRole = primaryTargetRole(profile)
+    if (!targetRole) {
       setStatus('error')
-      setMessage('Complete your profile skills or upload a CV before live job search.')
+      setMessage('Add a target role before live job search so extraction stays focused.')
       return
     }
 
-    const targetRoles = usefulPreferenceTerms(profile.targetRoles).length ? usefulPreferenceTerms(profile.targetRoles) : [profile.targetRole]
-    const query = targetRoles[0] || skills.slice(0, 3).join(' ')
+    const targetRoles = usefulPreferenceTerms(profile.targetRoles).length ? usefulPreferenceTerms(profile.targetRoles) : [targetRole]
     const experienceYears = Math.max(Number(profile.experienceYears) || 0, Number(activeCv.totalYearsExperience) || 0)
     const params = new URLSearchParams({
-      query,
+      query: targetRole,
       location: profileSearchLocation(profile),
       skills: skills.join(','),
       targetRoles: targetRoles.join(','),
@@ -2032,7 +2068,7 @@ function useLiveJobSearch() {
     })
 
     setStatus('loading')
-    setMessage('Fetching precise matches from live sources...')
+    setMessage(`Searching live sources for ${targetRole} roles...`)
 
     try {
       const client = requireSupabase()
@@ -2054,7 +2090,7 @@ function useLiveJobSearch() {
       }
 
       setLiveJobs(payload.jobs, payload.sources || [])
-      void recordSearch(query, payload.jobs.length).catch(() => undefined)
+      void recordSearch(targetRole, payload.jobs.length).catch(() => undefined)
       setStatus('done')
       setMessage(`Fetched ${payload.jobs.length} relevant jobs matched to your skills and experience.`)
       if (goToJobs) navigate('/jobs')
@@ -2415,20 +2451,41 @@ function ProfilePage() {
         </div>
       </section>
 
-      <AccountSecurityCard />
     </div>
   )
 }
 
-function AccountSecurityCard() {
+function AccountSettingsPanel() {
+  const navigate = useNavigate()
+  const profile = useJobmatchStore((state) => state.profile)
+  const updateAccountProfile = useJobmatchStore((state) => state.updateAccountProfile)
   const updatePassword = useJobmatchStore((state) => state.updatePassword)
-  const email = useJobmatchStore((state) => state.profile.email)
+  const deleteAccount = useJobmatchStore((state) => state.deleteAccount)
+  const email = profile.email
+  const [profileName, setProfileName] = useState(profile.name)
+  const [profileEmail, setProfileEmail] = useState(profile.email)
+  const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl)
+  const [emailPassword, setEmailPassword] = useState('')
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deleteConfirm, setDeleteConfirm] = useState('')
   const [showPasswords, setShowPasswords] = useState(false)
   const [pending, setPending] = useState(false)
+  const [deletePending, setDeletePending] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [profilePending, setProfilePending] = useState(false)
+  const [avatarPending, setAvatarPending] = useState(false)
   const [notice, setNotice] = useState<{ tone: 'error' | 'success'; text: string } | null>(null)
+  const emailChanged = profileEmail.trim().toLowerCase() !== profile.email.toLowerCase()
+
+  useEffect(() => {
+    setProfileName(profile.name)
+    setProfileEmail(profile.email)
+    setAvatarUrl(profile.avatarUrl)
+    setEmailPassword('')
+  }, [profile.name, profile.email, profile.avatarUrl])
 
   const strength = useMemo(() => {
     let score = 0
@@ -2439,7 +2496,59 @@ function AccountSecurityCard() {
     return score
   }, [newPassword])
 
-  const submit = async (event: React.FormEvent) => {
+  const submitProfile = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setNotice(null)
+
+    if (!profileName.trim()) {
+      setNotice({ tone: 'error', text: 'Name is required.' })
+      return
+    }
+    if (emailChanged && !emailPassword) {
+      setNotice({ tone: 'error', text: 'Enter your current password to change your email.' })
+      return
+    }
+
+    setProfilePending(true)
+    try {
+      await updateAccountProfile({
+        name: profileName.trim(),
+        email: profileEmail.trim(),
+        avatarUrl,
+        currentPassword: emailChanged ? emailPassword : undefined,
+      })
+      setEmailPassword('')
+      setNotice({ tone: 'success', text: 'Profile updated successfully.' })
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Could not update your profile.' })
+    } finally {
+      setProfilePending(false)
+    }
+  }
+
+  const handleAvatarFile = async (file: File | null) => {
+    if (!file) return
+    setNotice(null)
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setNotice({ tone: 'error', text: 'Upload a JPG, PNG, or WebP image.' })
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setNotice({ tone: 'error', text: 'Profile image must be 5 MB or smaller.' })
+      return
+    }
+
+    setAvatarPending(true)
+    try {
+      setAvatarUrl(await resizeAvatarFile(file))
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Could not read that image.' })
+    } finally {
+      setAvatarPending(false)
+    }
+  }
+
+  const submitPassword = async (event: React.FormEvent) => {
     event.preventDefault()
     setNotice(null)
 
@@ -2470,31 +2579,144 @@ function AccountSecurityCard() {
     }
   }
 
+  const submitDeleteAccount = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setNotice(null)
+
+    if (deleteConfirm !== 'DELETE') {
+      setNotice({ tone: 'error', text: 'Type DELETE to confirm account deletion.' })
+      return
+    }
+
+    setDeletePending(true)
+    try {
+      await deleteAccount(deletePassword, deleteConfirm)
+      setShowDeleteDialog(false)
+      setDeletePassword('')
+      setDeleteConfirm('')
+      navigate('/', { replace: true })
+    } catch (error) {
+      setNotice({ tone: 'error', text: error instanceof Error ? error.message : 'Could not delete your account.' })
+    } finally {
+      setDeletePending(false)
+    }
+  }
+
   return (
-    <section className="panel p-5">
-      <div className="mb-5 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-md bg-primary/15 text-primary">
-            <ShieldCheck size={21} />
+    <section className="panel overflow-hidden">
+      <div className="border-b border-line bg-gradient-to-br from-primary/12 via-panel to-panel p-5">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-4">
+            <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-primary/30 bg-primary/15 text-primary">
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <UserRound size={26} />
+              )}
+            </div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-primary">Edit profile</p>
+              <h2 className="text-2xl font-bold text-ink">Account settings</h2>
+              <p className="text-sm text-muted">Update your profile, login email, password, and account image.</p>
+            </div>
           </div>
+          <label className="secondary-button h-11 cursor-pointer rounded-xl px-4">
+            <UploadCloud size={16} />
+            {avatarPending ? 'Reading image...' : 'Upload image'}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="sr-only"
+              onChange={(event) => void handleAvatarFile(event.target.files?.[0] || null)}
+            />
+          </label>
+        </div>
+      </div>
+
+      <div className="space-y-6 p-5">
+      <form onSubmit={submitProfile} className="space-y-4">
+        <div className="grid gap-4 lg:grid-cols-2">
+          <label className="field-label">
+            Name
+            <span className="field-shell normal-case">
+              <UserRound size={16} className="text-muted" />
+              <input
+                type="text"
+                autoComplete="name"
+                value={profileName}
+                onChange={(event) => setProfileName(event.target.value)}
+                placeholder="Your name"
+              />
+            </span>
+          </label>
+          <label className="field-label">
+            Email
+            <span className="field-shell normal-case">
+              <Mail size={16} className="text-muted" />
+              <input
+                type="email"
+                autoComplete="email"
+                value={profileEmail}
+                onChange={(event) => setProfileEmail(event.target.value)}
+                placeholder="you@example.com"
+              />
+            </span>
+          </label>
+        </div>
+
+        {emailChanged ? (
+          <label className="field-label block max-w-xl">
+            Current password
+            <span className="field-shell normal-case">
+              <LockKeyhole size={16} className="text-muted" />
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={emailPassword}
+                onChange={(event) => setEmailPassword(event.target.value)}
+                placeholder="Required to change email"
+              />
+            </span>
+          </label>
+        ) : null}
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="submit" className="primary-button h-11 rounded-xl" disabled={profilePending || avatarPending}>
+            {profilePending ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+            {profilePending ? 'Saving...' : 'Save profile'}
+          </button>
+          {avatarUrl ? (
+            <button
+              type="button"
+              className="secondary-button h-11 rounded-xl"
+              onClick={() => setAvatarUrl('')}
+              disabled={profilePending || avatarPending}
+            >
+              <X size={16} />
+              Remove image
+            </button>
+          ) : null}
+        </div>
+      </form>
+
+      <form onSubmit={submitPassword} className="space-y-4 border-t border-line pt-5">
+        <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-xl font-semibold text-ink">Account security</h2>
+            <h3 className="text-lg font-semibold text-ink">Password</h3>
             <p className="text-sm text-muted">
               Change the password for {email ? <span className="font-medium text-ink">{email}</span> : 'your account'}.
             </p>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowPasswords((current) => !current)}
+            className="secondary-button h-9 px-3 text-xs"
+          >
+            {showPasswords ? <EyeOff size={15} /> : <Eye size={15} />}
+            {showPasswords ? 'Hide' : 'Show'}
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowPasswords((current) => !current)}
-          className="secondary-button h-9 px-3 text-xs"
-        >
-          {showPasswords ? <EyeOff size={15} /> : <Eye size={15} />}
-          {showPasswords ? 'Hide' : 'Show'}
-        </button>
-      </div>
 
-      <form onSubmit={submit} className="space-y-4">
         <div className="grid gap-4 lg:grid-cols-3">
           <label className="field-label">
             Current password
@@ -2588,8 +2810,172 @@ function AccountSecurityCard() {
           </p>
         ) : null}
       </form>
+
+      <div className="mt-6 rounded-md border border-danger/30 bg-danger/10 p-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-danger/15 text-danger">
+              <Trash2 size={18} />
+            </div>
+            <div>
+              <h3 className="font-semibold text-ink">Delete account</h3>
+              <p className="mt-1 text-sm leading-6 text-muted">
+                Permanently remove your profile, CV data, applications, notifications, and account login.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-danger/40 bg-danger/15 px-4 text-sm font-semibold text-danger transition hover:bg-danger/20"
+            onClick={() => {
+              setShowDeleteDialog(true)
+              setNotice(null)
+            }}
+          >
+            <Trash2 size={15} />
+            Delete account
+          </button>
+        </div>
+      </div>
+
+      {typeof document !== 'undefined'
+        ? createPortal(
+            <AnimatePresence>
+              {showDeleteDialog ? (
+          <motion.div
+            className="fixed inset-0 z-[999] grid place-items-center overflow-y-auto bg-black/65 px-4 py-8 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-account-title"
+              className="w-full max-w-lg rounded-2xl border border-danger/30 bg-panel p-6 shadow-soft"
+              initial={{ opacity: 0, scale: 0.96, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 16 }}
+              transition={{ duration: 0.18 }}
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-danger/15 text-danger">
+                  <Trash2 size={20} />
+                </div>
+                <div>
+                  <h2 id="delete-account-title" className="text-xl font-semibold text-ink">
+                    Permanently delete your account?
+                  </h2>
+                  <p className="mt-2 text-sm leading-6 text-muted">
+                    This cannot be undone. Jobmatcher will delete your profile, CV records, saved jobs, applications,
+                    reminders, search history, and login account.
+                  </p>
+                </div>
+              </div>
+
+              <form className="mt-5 space-y-4" onSubmit={submitDeleteAccount}>
+                <label className="field-label">
+                  Current password
+                  <span className="field-shell normal-case">
+                    <LockKeyhole size={16} className="text-muted" />
+                    <input
+                      type="password"
+                      autoComplete="current-password"
+                      required
+                      value={deletePassword}
+                      onChange={(event) => setDeletePassword(event.target.value)}
+                      placeholder="Confirm your current password"
+                    />
+                  </span>
+                </label>
+
+                <label className="field-label">
+                  Type DELETE to confirm
+                  <span className="field-shell normal-case">
+                    <Trash2 size={16} className="text-muted" />
+                    <input
+                      required
+                      value={deleteConfirm}
+                      onChange={(event) => setDeleteConfirm(event.target.value)}
+                      placeholder="DELETE"
+                    />
+                  </span>
+                </label>
+
+                <div className="flex flex-col-reverse gap-3 pt-1 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    className="secondary-button h-11"
+                    disabled={deletePending}
+                    onClick={() => {
+                      setShowDeleteDialog(false)
+                      setDeletePassword('')
+                      setDeleteConfirm('')
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-md bg-danger px-4 text-sm font-semibold text-white transition hover:bg-danger/90 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={deletePending || !deletePassword || deleteConfirm !== 'DELETE'}
+                  >
+                    {deletePending ? <RefreshCw size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                    {deletePending ? 'Deleting…' : 'Delete forever'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </motion.div>
+              ) : null}
+            </AnimatePresence>,
+            document.body,
+          )
+        : null}
+      </div>
     </section>
   )
+}
+
+function resizeAvatarFile(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('Could not read that image.'))
+    reader.onload = () => {
+      const image = new Image()
+      image.onerror = () => reject(new Error('Could not load that image.'))
+      image.onload = () => {
+        const size = 256
+        const canvas = document.createElement('canvas')
+        canvas.width = size
+        canvas.height = size
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          reject(new Error('Image processing is not available in this browser.'))
+          return
+        }
+
+        const scale = Math.max(size / image.width, size / image.height)
+        const width = image.width * scale
+        const height = image.height * scale
+        const x = (size - width) / 2
+        const y = (size - height) / 2
+
+        ctx.fillStyle = '#101218'
+        ctx.fillRect(0, 0, size, size)
+        ctx.drawImage(image, x, y, width, height)
+
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.86)
+        if (dataUrl.length > 180_000) {
+          reject(new Error('Profile image is too large after resizing. Try a smaller image.'))
+          return
+        }
+        resolve(dataUrl)
+      }
+      image.src = String(reader.result || '')
+    }
+    reader.readAsDataURL(file)
+  })
 }
 
 const CHART = {
@@ -2880,10 +3266,7 @@ function JobDiscoveryPage() {
   const filteredJobs = useMemo(() => filterAndSortJobs(scoredJobs, filters), [scoredJobs, filters])
   const selected = filteredJobs.find(({ job }) => job.id === selectedJobId) ?? filteredJobs[0] ?? scoredJobs[0]
   const sources = Array.from(new Set(scoredJobs.map(({ job }) => job.sourcePlatform))).sort()
-  const externalSearchLinks = useMemo(
-    () => buildExternalJobSearchLinks(view.profile, view.activeCv),
-    [view.profile, view.activeCv],
-  )
+  const externalSearchLinks = useMemo(() => buildExternalJobSearchLinks(view.profile), [view.profile])
   const activeFilterCount =
     filters.workModes.length +
     filters.jobTypes.length +
@@ -4255,64 +4638,14 @@ function AdminPage() {
         <HealthTile label="Database" value="Healthy" icon={<DatabaseZap size={18} />} />
         <HealthTile label="Auth" value="Supabase JWT + RLS" icon={<LockKeyhole size={18} />} />
         <HealthTile label="CV parser" value="On-device" icon={<FileText size={18} />} />
-        <HealthTile label="Live sources" value={`${liveJobSources.length || 6} configured`} icon={<Globe2 size={18} />} />
+        <HealthTile label="Live sources" value={`${liveJobSources.length || 22} configured`} icon={<Globe2 size={18} />} />
       </section>
     </div>
   )
 }
 
-const settingsServices: { label: string; detail: string; icon: typeof Bell; accent: Accent }[] = [
-  { label: 'Supabase', detail: 'Auth, database, and row-level security for your account.', icon: DatabaseZap, accent: 'primary' },
-  { label: 'CV parser', detail: 'PDF, DOCX, DOC, and TXT parsed locally on your device.', icon: FileText, accent: 'success' },
-  { label: 'Live job sources', detail: 'Google Jobs, Adzuna, Jooble, RemoteOK and more.', icon: Globe2, accent: 'cyan' },
-  { label: 'Email (Brevo)', detail: 'Branded password-reset and digest emails.', icon: Mail, accent: 'violet' },
-  { label: 'Rate limiting', detail: 'Upstash Redis protects the live API routes.', icon: Gauge, accent: 'warning' },
-]
-
 function SettingsPage() {
-  return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
-      <section className="panel p-5">
-        <div className="mb-4 flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 text-primary">
-            <DatabaseZap size={18} />
-          </span>
-          <h2 className="text-lg font-semibold text-ink">Integrations &amp; services</h2>
-        </div>
-        <div className="space-y-3">
-          {settingsServices.map((service) => {
-            const Icon = service.icon
-            return (
-              <div key={service.label} className="flex items-start gap-3 rounded-2xl border border-line bg-bg/50 p-4">
-                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${ACCENT_SOFT[service.accent]}`}>
-                  <Icon size={16} />
-                </span>
-                <div>
-                  <p className="font-semibold text-ink">{service.label}</p>
-                  <p className="mt-1 text-sm text-muted">{service.detail}</p>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </section>
-
-      <section className="panel p-5">
-        <div className="mb-4 flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-success/15 text-success">
-            <ShieldCheck size={18} />
-          </span>
-          <h2 className="text-lg font-semibold text-ink">Security &amp; privacy</h2>
-        </div>
-        <div className="space-y-3">
-          <SecurityRow icon={<LockKeyhole size={17} />} title="JWT + Row-Level Security" text="Your data is scoped to your account by Supabase policies." />
-          <SecurityRow icon={<ShieldCheck size={17} />} title="Sanitized content" text="Job HTML is cleaned with DOMPurify before it renders." />
-          <SecurityRow icon={<FileText size={17} />} title="Local CV parsing" text="Resume files are parsed on your device, not uploaded to an AI." />
-          <SecurityRow icon={<LogOut size={17} />} title="Export & deletion" text="GDPR-ready export and account deletion are part of the schema." />
-        </div>
-      </section>
-    </div>
-  )
+  return <AccountSettingsPanel />
 }
 
 function HealthTile({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
@@ -4321,18 +4654,6 @@ function HealthTile({ label, value, icon }: { label: string; value: string; icon
       <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-md bg-success/15 text-success">{icon}</div>
       <p className="text-sm text-muted">{label}</p>
       <p className="mt-1 font-semibold text-ink">{value}</p>
-    </div>
-  )
-}
-
-function SecurityRow({ icon, title, text }: { icon: React.ReactNode; title: string; text: string }) {
-  return (
-    <div className="flex gap-3 rounded-md border border-line bg-bg/60 p-4">
-      <div className="mt-1 text-primary">{icon}</div>
-      <div>
-        <p className="font-semibold text-ink">{title}</p>
-        <p className="mt-1 text-sm leading-6 text-muted">{text}</p>
-      </div>
     </div>
   )
 }
