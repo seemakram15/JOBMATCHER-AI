@@ -104,18 +104,18 @@ const mandatoryPlatformSearchTargets: PlatformSearchTarget[] = [
   {
     name: 'LinkedIn',
     siteQuery: '(site:linkedin.com/jobs OR site:www.linkedin.com/jobs OR site:linkedin.com/jobs/view)',
-    resultLimit: 20,
+    resultLimit: 60,
   },
   {
     name: 'Indeed',
     siteQuery:
       '(site:indeed.com/viewjob OR site:indeed.com/jobs OR site:uk.indeed.com/viewjob OR site:in.indeed.com/viewjob OR site:pk.indeed.com/viewjob)',
-    resultLimit: 20,
+    resultLimit: 60,
   },
   {
     name: 'Naukri',
     siteQuery: '(site:naukri.com/job-listings OR site:www.naukri.com/job-listings)',
-    resultLimit: 20,
+    resultLimit: 60,
   },
 ]
 
@@ -123,72 +123,72 @@ const additionalPlatformSearchTargets: PlatformSearchTarget[] = [
   {
     name: 'RemoteJobsFinder',
     siteQuery: '(site:remotejobsfinder.co/en/search OR site:remotejobsfinder.co)',
-    resultLimit: 10,
+    resultLimit: 35,
   },
   {
     name: 'Hubstaff Talent',
     siteQuery: '(site:hubstafftalent.net/search/jobs OR site:hubstafftalent.net/jobs)',
-    resultLimit: 10,
+    resultLimit: 35,
   },
   {
     name: 'Jobspresso',
     siteQuery: '(site:jobspresso.co/remote-work OR site:jobspresso.co/job)',
-    resultLimit: 10,
+    resultLimit: 35,
   },
   {
     name: 'Remotive Board',
     siteQuery: '(site:remotive.com/remote-jobs OR site:remotive.com/remote-jobs/*)',
-    resultLimit: 10,
+    resultLimit: 35,
   },
   {
     name: 'SkipTheDrive',
     siteQuery: '(site:skipthedrive.com/job OR site:skipthedrive.com)',
-    resultLimit: 10,
+    resultLimit: 35,
   },
   {
     name: 'Workew',
     siteQuery: '(site:workew.com/remote-jobs OR site:workew.com/job)',
-    resultLimit: 10,
+    resultLimit: 35,
   },
   {
     name: 'Dynamite Jobs',
     siteQuery: '(site:dynamitejobs.com/remote-jobs OR site:dynamitejobs.com/job)',
-    resultLimit: 10,
+    resultLimit: 35,
   },
   {
     name: 'Instahyre',
     siteQuery: '(site:instahyre.com/job OR site:instahyre.com/jobs)',
-    resultLimit: 10,
+    resultLimit: 35,
   },
   {
     name: 'Monster',
     siteQuery: '(site:monster.com/job-openings OR site:monsterindia.com/job)',
-    resultLimit: 10,
+    resultLimit: 35,
   },
   {
     name: 'CareerCloud',
     siteQuery: '(site:careercloud.com/jobs OR site:careercloud.com/job)',
-    resultLimit: 10,
+    resultLimit: 35,
   },
   {
     name: 'Dice',
     siteQuery: '(site:dice.com/job-detail OR site:dice.com/jobs)',
-    resultLimit: 10,
+    resultLimit: 35,
   },
   {
     name: 'CareerBuilder',
     siteQuery: '(site:careerbuilder.com/job OR site:careerbuilder.com/jobs)',
-    resultLimit: 10,
+    resultLimit: 35,
   },
   {
     name: 'JibberJobber',
     siteQuery: '(site:jibberjobber.com/jobs OR site:jibberjobber.com/job)',
-    resultLimit: 10,
+    resultLimit: 35,
   },
   {
     name: 'Glassdoor',
     siteQuery: '(site:glassdoor.com/job-listing OR site:glassdoor.com/Job)',
-    resultLimit: 10,
+    resultLimit: 35,
   },
 ]
 
@@ -485,7 +485,7 @@ async function fetchSerpApiOrganicJobs(
     buildGoogleCareerSearchQuery(search, location),
     location,
     apiKey,
-    20,
+    50,
   )
 
   return organicResults
@@ -528,17 +528,40 @@ async function fetchSerpApiOrganicResults(
   apiKey: string,
   limit: number,
 ): Promise<SerpOrganicResult[]> {
-  const url = new URL('https://serpapi.com/search.json')
-  url.searchParams.set('engine', 'google')
-  url.searchParams.set('q', query)
-  url.searchParams.set('num', String(Math.max(1, Math.min(20, limit))))
-  url.searchParams.set('api_key', apiKey)
-  if (!/^remote$/i.test(location)) url.searchParams.set('location', location)
+  const results: SerpOrganicResult[] = []
+  const seenLinks = new Set<string>()
+  const pageSize = Math.max(1, Math.min(20, limit))
+  const maxPages = Math.min(2, Math.ceil(limit / pageSize))
 
-  const response = await fetch(url.toString(), { headers: { Accept: 'application/json' } })
-  if (!response.ok) throw new Error(`SerpAPI organic HTTP ${response.status}`)
-  const data = (await response.json()) as { organic_results?: SerpOrganicResult[] }
-  return data.organic_results || []
+  for (let page = 0; page < maxPages && results.length < limit; page += 1) {
+    const url = new URL('https://serpapi.com/search.json')
+    url.searchParams.set('engine', 'google')
+    url.searchParams.set('q', query)
+    url.searchParams.set('num', String(Math.min(pageSize, limit - results.length)))
+    url.searchParams.set('api_key', apiKey)
+    if (page > 0) url.searchParams.set('start', String(page * pageSize))
+    if (!/^remote$/i.test(location)) url.searchParams.set('location', location)
+
+    const response = await fetch(url.toString(), { headers: { Accept: 'application/json' } })
+    if (!response.ok) {
+      if (results.length) break
+      throw new Error(`SerpAPI organic HTTP ${response.status}`)
+    }
+
+    const data = (await response.json()) as { organic_results?: SerpOrganicResult[] }
+    const pageResults = data.organic_results || []
+    if (!pageResults.length) break
+
+    for (const item of pageResults) {
+      const key = item.link || `${item.title || ''}:${item.source || item.displayed_link || ''}`
+      if (!key || seenLinks.has(key)) continue
+      seenLinks.add(key)
+      results.push(item)
+      if (results.length >= limit) break
+    }
+  }
+
+  return results
 }
 
 function mapSerpOrganicResultToJob(

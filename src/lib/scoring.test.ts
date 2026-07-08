@@ -162,4 +162,42 @@ describe('scoring engine', () => {
     expect(filtered.length).toBeGreaterThan(1)
     expect(filtered[0].match.totalScore).toBeGreaterThanOrEqual(filtered[1].match.totalScore)
   })
+
+  it('keeps older fetched source listings visible when date filter is any', () => {
+    const olderJob = {
+      ...sampleJobs[0],
+      id: '7428e6f0-655a-5d09-a62f-a22f2bd7e278',
+      postedAt: new Date(Date.now() - 75 * 24 * 36e5).toISOString(),
+      fetchedAt: new Date().toISOString(),
+    }
+    const scoredJobs = scoreJobs(sampleProfile, sampleCv, [olderJob], [])
+
+    expect(
+      filterAndSortJobs(scoredJobs, {
+        search: '',
+        scoreMin: 0,
+        workModes: [],
+        jobTypes: [],
+        levels: [],
+        sources: [],
+        datePosted: 'any',
+        salaryMin: 0,
+        sort: 'score',
+      }),
+    ).toHaveLength(1)
+
+    expect(
+      filterAndSortJobs(scoredJobs, {
+        search: '',
+        scoreMin: 0,
+        workModes: [],
+        jobTypes: [],
+        levels: [],
+        sources: [],
+        datePosted: 'month',
+        salaryMin: 0,
+        sort: 'score',
+      }),
+    ).toHaveLength(0)
+  })
 })

@@ -261,6 +261,14 @@ export async function requireAdminCaller(
 
 export async function requireAuthenticatedCaller(req: IncomingMessage): Promise<AuthenticatedCaller> {
   const token = getBearerToken(req)
+  return requireAuthenticatedAccessToken(token)
+}
+
+export async function requireAuthenticatedAccessToken(token: string): Promise<AuthenticatedCaller> {
+  if (!token.trim()) {
+    throw new ApiError(401, 'UNAUTHENTICATED', 'Missing bearer token.')
+  }
+
   const client = getServiceClient()
 
   const { data, error } = await client.auth.getUser(token)

@@ -2,9 +2,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { z } from 'zod'
 import { fetchLiveJobs } from '../src/lib/liveJobs.js'
 import {
+  ApiError,
   enforceRateLimit,
   handleOptions,
   parseSearchParams,
+  readJson,
+  requireAuthenticatedAccessToken,
   requireAuthenticatedCaller,
   requireMethod,
   sendError,
@@ -41,18 +44,21 @@ const liveJobsQuerySchema = z.object({
   remotePreference: z.enum(['remote', 'hybrid', 'onsite', 'any']).optional().default('remote'),
   minimumSalary: z.coerce.number().min(0).max(1_000_000).optional().default(0),
   experienceYears: z.coerce.number().min(0).max(60).optional(),
-  limit: z.coerce.number().int().min(1).max(100).optional().default(80),
+  limit: z.coerce.number().int().min(1).max(200).optional().default(150),
+})
+
+const liveJobsPostSchema = liveJobsQuerySchema.extend({
+  authToken: z.string().trim().max(24_000, 'Session token is too large.').optional().default(''),
 })
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  setCors(req, res, ['GET'])
-  if (handleOptions(req, res, ['GET'])) return
+  setCors(req, res, ['GET', 'POST'])
+  if (handleOptions(req, res, ['GET', 'POST'])) return
 
   try {
-    requireMethod(req, ['GET'])
-    await requireAuthenticatedCaller(req)
+    requireMethod(req, ['GET', 'POST'])
     enforceRateLimit(req, 'live-jobs', 30, 60_000)
-    const input = parseSearchParams(req, liveJobsQuerySchema)
+    const input = await parseLiveJobsInput(req)
     const skills = input.skills
       .split(',')
       .map((skill) => skill.trim())
@@ -88,6 +94,24 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
   } catch (error) {
     sendError(res, error, 'LIVE_JOBS_FETCH_FAILED')
   }
+}
+
+async function parseLiveJobsInput(req: IncomingMessage): Promise<z.infer<typeof liveJobsQuerySchema>> {
+  if (req.method === 'POST') {
+    const parsed = liveJobsPostSchema.safeParse(await readJson(req, 80_000))
+    if (!parsed.success) {
+      throw new ApiError(400, 'VALIDATION_ERROR', parsed.error.issues[0]?.message || 'Invalid live search request.')
+    }
+    const { authToken, ...input } = parsed.data
+    if (!authToken) {
+      throw new ApiError(401, 'UNAUTHENTICATED', 'Missing session token.')
+    }
+    await requireAuthenticatedAccessToken(authToken)
+    return input
+  }
+
+  await requireAuthenticatedCaller(req)
+  return parseSearchParams(req, liveJobsQuerySchema)
 }
 
 function cleanCsv(value: string, limit: number, maxLength: number) {

@@ -180,6 +180,17 @@ interface AuthLoginResponse {
   error?: { message?: string }
 }
 
+async function readApiPayload<T>(response: Response): Promise<T | null> {
+  const text = await response.text()
+  if (!text.trim()) return null
+
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    return null
+  }
+}
+
 async function signInWithServerRateLimit(email: string, password: string) {
   const client = requireSupabase()
   const response = await fetch('/api/auth-login', {
@@ -188,7 +199,7 @@ async function signInWithServerRateLimit(email: string, password: string) {
     body: JSON.stringify({ email: email.trim(), password }),
   })
 
-  const payload = (await response.json().catch(() => null)) as AuthLoginResponse | null
+  const payload = await readApiPayload<AuthLoginResponse>(response)
   if (!response.ok) {
     throw new Error(payload?.error?.message || 'Invalid email or password.')
   }
@@ -336,16 +347,16 @@ export const useJobmatchStore = create<JobmatchState>((set, get) => ({
       body: JSON.stringify({ email, password, name }),
     })
 
-    const payload = (await response.json()) as { error?: { message: string }; confirmationRequired?: boolean }
+    const payload = await readApiPayload<{ error?: { message: string }; confirmationRequired?: boolean }>(response)
     if (!response.ok) {
-      const message = payload.error?.message || 'Signup failed.'
+      const message = payload?.error?.message || 'Signup failed.'
       set({ authStatus: 'error', authMessage: message })
       throw new Error(message)
     }
 
     // When the server emailed a confirmation link, do NOT sign in — the account
     // is inactive until the user clicks the link.
-    if (payload.confirmationRequired) {
+    if (payload?.confirmationRequired) {
       set({ authStatus: 'unauthenticated', authMessage: '' })
       return { confirmationRequired: true }
     }
@@ -378,7 +389,7 @@ export const useJobmatchStore = create<JobmatchState>((set, get) => ({
     })
 
     if (!response.ok) {
-      const payload = await response.json().catch(() => null)
+      const payload = await readApiPayload<{ error?: { message?: string } }>(response)
       const message = payload?.error?.message || 'Could not send the reset email.'
       throw new Error(message)
     }
@@ -399,15 +410,16 @@ export const useJobmatchStore = create<JobmatchState>((set, get) => ({
       body: JSON.stringify(input),
     })
 
+    const payload = await readApiPayload<{
+      error?: { message?: string }
+      profile?: Pick<UserProfile, 'id' | 'email' | 'name' | 'avatarUrl'>
+    }>(response)
+
     if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
       throw new Error(payload?.error?.message || 'Profile update failed.')
     }
 
-    const payload = (await response.json()) as {
-      profile?: Pick<UserProfile, 'id' | 'email' | 'name' | 'avatarUrl'>
-    }
-    if (!payload.profile) throw new Error('Profile update failed.')
+    if (!payload?.profile) throw new Error('Profile update failed.')
 
     set((state) => ({
       profile: {
@@ -454,7 +466,7 @@ export const useJobmatchStore = create<JobmatchState>((set, get) => ({
     })
 
     if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null
+      const payload = await readApiPayload<{ error?: { message?: string } }>(response)
       throw new Error(payload?.error?.message || 'Account deletion failed.')
     }
 
@@ -879,7 +891,7 @@ export const useJobmatchStore = create<JobmatchState>((set, get) => ({
           workModes: [],
           jobTypes: [],
           sources: [],
-          datePosted: 'month',
+          datePosted: 'any',
           search: '',
           sort: 'score',
         },
