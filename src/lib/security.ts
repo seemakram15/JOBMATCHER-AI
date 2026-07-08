@@ -40,6 +40,16 @@ export function sanitiseUrl(value: unknown, fallback = '#') {
   return fallback
 }
 
+export function sanitiseAvatarUrl(value: unknown) {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  if (/^data:image\/(?:png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/i.test(raw) && raw.length <= 180_000) {
+    return raw
+  }
+  const url = sanitiseUrl(raw, '')
+  return url.length <= 2048 ? url : ''
+}
+
 export function safeHtmlParagraphs(value: unknown) {
   const text = sanitiseLongText(value)
   if (!text) return '<p></p>'
@@ -134,6 +144,7 @@ export function sanitiseUserProfile(profile: UserProfile): UserProfile {
     ...profile,
     email: sanitiseText(profile.email, 254),
     name: sanitiseText(profile.name, 160),
+    avatarUrl: sanitiseAvatarUrl(profile.avatarUrl),
     headline: sanitiseText(profile.headline, 240),
     location: sanitiseText(profile.location, 120),
     targetRole: sanitiseText(profile.targetRole || targetRoles[0] || '', 160),

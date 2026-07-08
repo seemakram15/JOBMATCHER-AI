@@ -28,6 +28,7 @@ interface UserRow {
   id: string
   email: string
   name: string | null
+  avatar_url: string | null
   headline: string | null
   location: string | null
   target_role: string | null
@@ -142,6 +143,7 @@ export async function ensureUserProfile(user: User) {
       id: user.id,
       email,
       name,
+      avatar_url: null,
       role: 'job_seeker',
       location: 'Remote',
       target_role: '',
@@ -266,6 +268,7 @@ export async function updateUserProfile(profile: UserProfile) {
     .from('users')
     .update({
       name: safe.name,
+      avatar_url: safe.avatarUrl || null,
       headline: safe.headline,
       location: safe.location,
       target_role: safe.targetRole,
@@ -532,6 +535,7 @@ function mapUser(row: UserRow): UserProfile {
     id: row.id,
     email: row.email,
     name: row.name || row.email.split('@')[0] || 'Jobmatcher user',
+    avatarUrl: row.avatar_url || '',
     role: row.role || 'job_seeker',
     headline: row.headline || '',
     location: row.location || 'Remote',

@@ -16,6 +16,9 @@ export default defineConfig(({ mode }) => {
     'RAPIDAPI_KEY',
     'OPENWEB_NINJA_API_KEY',
     'SUPABASE_URL',
+    'SUPABASE_PUBLISHABLE_KEY',
+    'VITE_SUPABASE_URL',
+    'VITE_SUPABASE_PUBLISHABLE_KEY',
     'SUPABASE_SERVICE_ROLE_KEY',
     'DATABASE_URL',
     'BREVO_API_KEY',
@@ -75,10 +78,34 @@ export default defineConfig(({ mode }) => {
               sendApiMiddlewareError(res, error)
             }
           })
+          server.middlewares.use('/api/auth-login', async (req, res) => {
+            try {
+              const { default: authLoginHandler } = await import('./api/auth-login')
+              await authLoginHandler(req, res)
+            } catch (error) {
+              sendApiMiddlewareError(res, error)
+            }
+          })
           server.middlewares.use('/api/password-reset', async (req, res) => {
             try {
               const { default: passwordResetHandler } = await import('./api/password-reset')
               await passwordResetHandler(req, res)
+            } catch (error) {
+              sendApiMiddlewareError(res, error)
+            }
+          })
+          server.middlewares.use('/api/delete-account', async (req, res) => {
+            try {
+              const { default: deleteAccountHandler } = await import('./api/delete-account')
+              await deleteAccountHandler(req, res)
+            } catch (error) {
+              sendApiMiddlewareError(res, error)
+            }
+          })
+          server.middlewares.use('/api/account-profile', async (req, res) => {
+            try {
+              const { default: accountProfileHandler } = await import('./api/account-profile')
+              await accountProfileHandler(req, res)
             } catch (error) {
               sendApiMiddlewareError(res, error)
             }

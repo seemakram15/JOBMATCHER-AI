@@ -33,6 +33,7 @@ export function createEmptyProfile(input: { id?: string; email?: string; name?: 
     id: input.id || '',
     email,
     name: inferredName,
+    avatarUrl: '',
     role: 'job_seeker',
     headline: '',
     location: 'Remote',
