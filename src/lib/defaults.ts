@@ -7,7 +7,7 @@ export const defaultFilters: JobFilters = {
   jobTypes: [],
   levels: [],
   sources: [],
-  datePosted: 'month',
+  datePosted: 'any',
   salaryMin: 0,
   sort: 'score',
 }

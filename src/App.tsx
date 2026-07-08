@@ -21,7 +21,6 @@ import {
   DatabaseZap,
   Eye,
   EyeOff,
-  ExternalLink,
   FileText,
   Gauge,
   Globe2,
@@ -234,61 +233,6 @@ interface CapturedJobDraft {
 
 function primaryTargetRole(profile: UserProfile) {
   return (usefulPreferenceTerms(profile.targetRoles)[0] || profile.targetRole || '').trim()
-}
-
-function buildExternalJobSearchLinks(profile: UserProfile) {
-  const keywordQuery = primaryTargetRole(profile)
-  if (!keywordQuery) return []
-  const location = profileSearchLocation(profile)
-  const encodedQuery = encodeURIComponent(keywordQuery)
-  const encodedLocation = encodeURIComponent(location || 'Remote')
-  const naukriSlug = keywordQuery
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-
-  return [
-    {
-      label: 'LinkedIn',
-      href: `https://www.linkedin.com/jobs/search/?keywords=${encodedQuery}&location=${encodedLocation}`,
-    },
-    {
-      label: 'Indeed',
-      href: `https://www.indeed.com/jobs?q=${encodedQuery}&l=${encodedLocation}`,
-    },
-    {
-      label: 'Naukri',
-      href: `https://www.naukri.com/${naukriSlug || 'software-engineer'}-jobs?k=${encodedQuery}&l=${encodedLocation}`,
-    },
-    {
-      label: 'RemoteJobsFinder',
-      href: `https://remotejobsfinder.co/en/search?q=${encodedQuery}`,
-    },
-    {
-      label: 'Hubstaff',
-      href: `https://hubstafftalent.net/search/jobs?search%5Bkeywords%5D=${encodedQuery}`,
-    },
-    {
-      label: 'Jobspresso',
-      href: `https://jobspresso.co/remote-work/?search_keywords=${encodedQuery}`,
-    },
-    {
-      label: 'Remotive',
-      href: `https://remotive.com/remote-jobs/search?search=${encodedQuery}`,
-    },
-    {
-      label: 'SkipTheDrive',
-      href: `https://www.skipthedrive.com/?s=${encodedQuery}`,
-    },
-    {
-      label: 'Workew',
-      href: `https://workew.com/remote-jobs/?search_keywords=${encodedQuery}`,
-    },
-    {
-      label: 'Dynamite',
-      href: `https://dynamitejobs.com/remote-jobs/?search=${encodedQuery}`,
-    },
-  ]
 }
 
 function getAppOrigin() {
@@ -666,8 +610,11 @@ const JOB_SOURCES = [
   'Naukri',
   'Adzuna',
   'Jooble',
+  'OpenWeb Ninja',
+  'JSearch',
   'RemoteOK',
   'Remotive',
+  'Remotive Board',
   'RemoteJobsFinder',
   'Hubstaff Talent',
   'Jobspresso',
@@ -681,11 +628,11 @@ const JOB_SOURCES = [
   'CareerBuilder',
   'JibberJobber',
   'Glassdoor',
-  'Career pages',
+  'Google Career Pages',
 ]
 
 const LANDING_STATS = [
-  { value: 22, suffix: '+', label: 'Live job sources wired in' },
+  { value: 25, suffix: '+', label: 'Live job sources wired in' },
   { value: 8, suffix: '', label: 'Connected workspace modules' },
   { value: 4, suffix: '', label: 'CV formats parsed locally' },
   { value: 100, suffix: '%', label: 'Scoped to your own account' },
@@ -1244,10 +1191,82 @@ const AUTH_HIGHLIGHTS = [
 ]
 
 const AUTH_STATS = [
-  { value: '22+', label: 'Live sources' },
+  { value: '25+', label: 'Live sources' },
   { value: '8', label: 'Modules' },
   { value: '100%', label: 'Yours' },
 ]
+
+type LiveSearchRunStatus = 'idle' | 'loading' | 'done' | 'error'
+type LiveSearchProgressStage = 'preparing' | 'authorizing' | 'extracting' | 'ranking' | 'done' | 'error'
+type LiveSearchSourceStatus = 'queued' | 'searching' | 'done' | 'error'
+
+interface LiveSearchProgressSource {
+  name: string
+  status: LiveSearchSourceStatus
+  count?: number
+  error?: string
+}
+
+interface LiveSearchProgressState {
+  open: boolean
+  status: LiveSearchRunStatus
+  stage: LiveSearchProgressStage
+  targetRole: string
+  location: string
+  message: string
+  jobsFound: number
+  rawFound: number
+  sources: LiveSearchProgressSource[]
+}
+
+const emptyLiveSearchProgress: LiveSearchProgressState = {
+  open: false,
+  status: 'idle',
+  stage: 'preparing',
+  targetRole: '',
+  location: '',
+  message: '',
+  jobsFound: 0,
+  rawFound: 0,
+  sources: [],
+}
+
+function queuedLiveSearchSources(): LiveSearchProgressSource[] {
+  return JOB_SOURCES.map((name) => ({ name, status: 'queued' }))
+}
+
+function reconcileLiveSearchSources(sources: LiveJobSourceResult[] = []) {
+  const sourceMap = new Map(sources.map((source) => [source.name, source]))
+  const known = JOB_SOURCES.map((name) => {
+    const source = sourceMap.get(name)
+    return {
+      name,
+      status: source ? (source.ok ? 'done' : 'error') : 'done',
+      count: source?.count || 0,
+      error: source?.error,
+    } satisfies LiveSearchProgressSource
+  })
+  const extras = sources
+    .filter((source) => !JOB_SOURCES.includes(source.name))
+    .map((source) => ({
+      name: source.name,
+      status: source.ok ? 'done' : 'error',
+      count: source.count,
+      error: source.error,
+    }) satisfies LiveSearchProgressSource)
+  return [...known, ...extras]
+}
+
+async function readApiJson<T>(response: Response, fallbackMessage: string): Promise<T | null> {
+  const text = await response.text()
+  if (!text.trim()) return null
+
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    throw new Error(`${fallbackMessage} Server returned a non-JSON response (${response.status}).`)
+  }
+}
 
 function AuthPage() {
   const navigate = useNavigate()
@@ -2032,8 +2051,48 @@ function useScoredJobs() {
 function useLiveJobSearch() {
   const navigate = useNavigate()
   const setLiveJobs = useJobmatchStore((state) => state.setLiveJobs)
-  const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+  const [status, setStatus] = useState<LiveSearchRunStatus>('idle')
   const [message, setMessage] = useState('')
+  const [progress, setProgress] = useState<LiveSearchProgressState>(emptyLiveSearchProgress)
+  const progressTimerRef = useRef<number | null>(null)
+
+  const clearProgressTimer = () => {
+    if (progressTimerRef.current !== null) {
+      window.clearInterval(progressTimerRef.current)
+      progressTimerRef.current = null
+    }
+  }
+
+  useEffect(
+    () => () => {
+      if (progressTimerRef.current !== null) window.clearInterval(progressTimerRef.current)
+    },
+    [],
+  )
+
+  const closeProgress = () => {
+    setProgress((current) => ({ ...current, open: false }))
+  }
+
+  const viewResults = () => {
+    closeProgress()
+    navigate('/jobs')
+  }
+
+  const animateSourceProgress = () => {
+    clearProgressTimer()
+    let sourceIndex = 0
+    progressTimerRef.current = window.setInterval(() => {
+      setProgress((current) => {
+        if (current.status !== 'loading' || current.stage !== 'extracting') return current
+        const nextSources = current.sources.map((source, index) =>
+          index <= sourceIndex && source.status === 'queued' ? { ...source, status: 'searching' as const } : source,
+        )
+        sourceIndex = Math.min(sourceIndex + 1, Math.max(current.sources.length - 1, 0))
+        return { ...current, sources: nextSources }
+      })
+    }, 360)
+  }
 
   const runLiveSearch = async (goToJobs = false) => {
     const { profile, activeCv } = useJobmatchStore.getState()
@@ -2047,14 +2106,23 @@ function useLiveJobSearch() {
     if (!targetRole) {
       setStatus('error')
       setMessage('Add a target role before live job search so extraction stays focused.')
+      setProgress({
+        ...emptyLiveSearchProgress,
+        open: true,
+        status: 'error',
+        stage: 'error',
+        message: 'Add a target role before live job search so extraction stays focused.',
+        location: profileSearchLocation(profile),
+      })
       return
     }
 
     const targetRoles = usefulPreferenceTerms(profile.targetRoles).length ? usefulPreferenceTerms(profile.targetRoles) : [targetRole]
     const experienceYears = Math.max(Number(profile.experienceYears) || 0, Number(activeCv.totalYearsExperience) || 0)
-    const params = new URLSearchParams({
+    const location = profileSearchLocation(profile)
+    const requestBody = {
       query: targetRole,
-      location: profileSearchLocation(profile),
+      location,
       skills: skills.join(','),
       targetRoles: targetRoles.join(','),
       mustHaveSkills: usefulPreferenceTerms(profile.mustHaveSkills).join(','),
@@ -2064,43 +2132,296 @@ function useLiveJobSearch() {
       remotePreference: normaliseRemotePreference(profile.remotePreference),
       minimumSalary: String(profile.minimumSalary || profile.salaryMin || 0),
       experienceYears: String(experienceYears),
-      limit: '80',
-    })
+      limit: '150',
+    }
 
     setStatus('loading')
     setMessage(`Searching live sources for ${targetRole} roles...`)
+    setProgress({
+      open: true,
+      status: 'loading',
+      stage: 'preparing',
+      targetRole,
+      location,
+      message: 'Preparing target role, skills, experience, and location filters.',
+      jobsFound: 0,
+      rawFound: 0,
+      sources: queuedLiveSearchSources(),
+    })
 
     try {
+      setProgress((current) => ({
+        ...current,
+        stage: 'authorizing',
+        message: 'Checking your signed-in session before the backend starts extraction.',
+      }))
       const client = requireSupabase()
       const { data } = await client.auth.getSession()
       const token = data.session?.access_token
       if (!token) throw new Error('Please sign in again before running live job search.')
 
-      const response = await fetch(`/api/live-jobs?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      setProgress((current) => ({
+        ...current,
+        stage: 'extracting',
+        message: `Querying ${JOB_SOURCES.length} live sources for real ${targetRole} jobs.`,
+      }))
+      animateSourceProgress()
+
+      const response = await fetch('/api/live-jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...requestBody, authToken: token }),
+        cache: 'no-store',
+        credentials: 'omit',
+        referrerPolicy: 'no-referrer',
       })
-      const payload = (await response.json()) as {
+      const payload = await readApiJson<{
         jobs?: Job[]
         sources?: LiveJobSourceResult[]
         error?: { message: string }
+      }>(response, 'Live job extraction failed.')
+
+      if (!response.ok || !payload?.jobs) {
+        throw new Error(payload?.error?.message || `Live job extraction failed with HTTP ${response.status}.`)
       }
 
-      if (!response.ok || !payload.jobs) {
-        throw new Error(payload.error?.message || 'Live job extraction failed.')
-      }
+      clearProgressTimer()
+      const nextSources = reconcileLiveSearchSources(payload.sources || [])
+      const rawFound = nextSources.reduce((sum, source) => sum + (source.count || 0), 0)
+      setProgress((current) => ({
+        ...current,
+        stage: 'ranking',
+        message: `Scoring ${rawFound} source listings against your CV, skills, and experience.`,
+        sources: nextSources,
+        rawFound,
+      }))
 
       setLiveJobs(payload.jobs, payload.sources || [])
       void recordSearch(targetRole, payload.jobs.length).catch(() => undefined)
       setStatus('done')
-      setMessage(`Fetched ${payload.jobs.length} relevant jobs matched to your skills and experience.`)
+      setMessage(`Fetched ${payload.jobs.length} real jobs matched to your skills and experience.`)
+      setProgress((current) => ({
+        ...current,
+        status: 'done',
+        stage: 'done',
+        jobsFound: payload.jobs?.length || 0,
+        message: `Done. ${payload.jobs?.length || 0} matched jobs are now shown in Jobmatcher.`,
+      }))
       if (goToJobs) navigate('/jobs')
     } catch (error) {
+      clearProgressTimer()
+      const errorMessage = error instanceof Error ? error.message : 'Live job extraction failed.'
       setStatus('error')
-      setMessage(error instanceof Error ? error.message : 'Live job extraction failed.')
+      setMessage(errorMessage)
+      setProgress((current) => ({
+        ...current,
+        open: true,
+        status: 'error',
+        stage: 'error',
+        message: errorMessage,
+        sources: current.sources.map((source) =>
+          source.status === 'searching' ? { ...source, status: 'error', error: 'Search stopped before this source responded.' } : source,
+        ),
+      }))
     }
   }
 
-  return { status, message, runLiveSearch }
+  return { status, message, progress, closeProgress, viewResults, runLiveSearch }
+}
+
+const liveSearchProgressSteps: Array<{ id: LiveSearchProgressStage; label: string; detail: string }> = [
+  { id: 'preparing', label: 'Prepare search', detail: 'Target role, CV skills, experience, and location.' },
+  { id: 'authorizing', label: 'Authenticate', detail: 'Confirming your signed-in session.' },
+  { id: 'extracting', label: 'Extract jobs', detail: 'Querying connected live sources.' },
+  { id: 'ranking', label: 'Rank matches', detail: 'Scoring and saving jobs in your feed.' },
+]
+
+function LiveSearchProgressModal({
+  progress,
+  onClose,
+  onViewJobs,
+}: {
+  progress: LiveSearchProgressState
+  onClose: () => void
+  onViewJobs: () => void
+}) {
+  if (!progress.open || typeof document === 'undefined') return null
+
+  const activeStepIndex = liveSearchProgressSteps.findIndex((step) => step.id === progress.stage)
+  const completedSources = progress.sources.filter((source) => source.status === 'done').length
+  const failedSources = progress.sources.filter((source) => source.status === 'error').length
+  const searchingSources = progress.sources.filter((source) => source.status === 'searching').length
+  const isLoading = progress.status === 'loading'
+
+  return createPortal(
+    <motion.div
+      className="fixed inset-0 z-[999] grid place-items-center overflow-y-auto bg-black/65 px-4 py-8 backdrop-blur-sm"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Live job search progress"
+    >
+      <motion.div
+        className="w-full max-w-4xl overflow-hidden rounded-2xl border border-line bg-panel shadow-soft"
+        initial={{ opacity: 0, scale: 0.96, y: 16 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 16 }}
+        transition={{ duration: 0.2 }}
+      >
+        <div className="border-b border-line bg-gradient-to-br from-primary/15 via-panel to-panel p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan/30 bg-cyan/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-cyan">
+                <Globe2 size={14} />
+                Live extraction
+              </div>
+              <h2 className="text-2xl font-bold text-ink">Fetching jobs into Jobmatcher</h2>
+              <p className="mt-2 text-sm leading-6 text-muted">
+                {progress.targetRole ? `Searching for ${progress.targetRole}` : 'Preparing live search'}
+                {progress.location ? ` in ${progress.location}` : ''}. Jobs are ranked and shown in your Jobmatcher feed.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="secondary-button h-10 w-10 rounded-xl p-0"
+              onClick={onClose}
+              aria-label={isLoading ? 'Hide live search progress' : 'Close live search progress'}
+            >
+              <X size={17} />
+            </button>
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-4">
+            <LiveSearchStat label="Sources" value={String(progress.sources.length || JOB_SOURCES.length)} />
+            <LiveSearchStat label="Searching" value={String(searchingSources)} />
+            <LiveSearchStat label="Raw found" value={String(progress.rawFound)} />
+            <LiveSearchStat label="Matched" value={String(progress.jobsFound)} />
+          </div>
+        </div>
+
+        <div className="grid gap-5 p-5 lg:grid-cols-[0.85fr_1.15fr]">
+          <section>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted">Backend progress</h3>
+            <div className="mt-3 space-y-3">
+              {liveSearchProgressSteps.map((step, index) => {
+                const isDone = progress.status === 'done' || (activeStepIndex >= 0 && index < activeStepIndex)
+                const isActive = progress.status === 'loading' && step.id === progress.stage
+                const isError = progress.status === 'error' && (step.id === progress.stage || activeStepIndex === -1)
+                return (
+                  <div
+                    key={step.id}
+                    className={`rounded-xl border p-3 ${
+                      isError
+                        ? 'border-danger/30 bg-danger/10'
+                        : isDone
+                          ? 'border-success/30 bg-success/10'
+                          : isActive
+                            ? 'border-primary/40 bg-primary/10'
+                            : 'border-line bg-bg/50'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span
+                        className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                          isError
+                            ? 'bg-danger/15 text-danger'
+                            : isDone
+                              ? 'bg-success/15 text-success'
+                              : isActive
+                                ? 'bg-primary/15 text-primary'
+                                : 'bg-bg text-muted'
+                        }`}
+                      >
+                        {isError ? <X size={16} /> : isDone ? <CheckCircle2 size={16} /> : isActive ? <RefreshCw size={16} className="animate-spin" /> : <Search size={16} />}
+                      </span>
+                      <div>
+                        <p className="font-semibold text-ink">{step.label}</p>
+                        <p className="mt-1 text-xs leading-5 text-muted">{isActive ? progress.message : step.detail}</p>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+
+          <section>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted">Source status</h3>
+              <span className="text-xs text-muted">
+                {completedSources} done · {failedSources} failed
+              </span>
+            </div>
+            <div className="mt-3 grid max-h-[360px] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+              {progress.sources.map((source) => (
+                <div key={source.name} className="rounded-xl border border-line bg-bg/55 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="min-w-0 truncate text-sm font-semibold text-ink">{source.name}</p>
+                    <LiveSearchSourceBadge source={source} />
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-muted">
+                    {source.status === 'done'
+                      ? `${source.count || 0} source listings returned`
+                      : source.status === 'error'
+                        ? source.error || 'Source failed during extraction'
+                        : source.status === 'searching'
+                          ? 'Querying this source now'
+                          : 'Queued for backend extraction'}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <div className="flex flex-col gap-3 border-t border-line bg-bg/45 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <p className={`text-sm ${progress.status === 'error' ? 'text-danger' : 'text-muted'}`}>
+            {progress.message || 'Preparing live extraction.'}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {progress.status === 'done' ? (
+              <button type="button" className="primary-button h-10 rounded-xl" onClick={onViewJobs}>
+                <Briefcase size={16} />
+                View fetched jobs
+              </button>
+            ) : null}
+            <button type="button" className="secondary-button h-10 rounded-xl" onClick={onClose}>
+              {isLoading ? 'Hide' : 'Close'}
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>,
+    document.body,
+  )
+}
+
+function LiveSearchStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-line bg-bg/55 p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-muted">{label}</p>
+      <p className="mt-1 text-xl font-bold text-ink">{value}</p>
+    </div>
+  )
+}
+
+function LiveSearchSourceBadge({ source }: { source: LiveSearchProgressSource }) {
+  const className =
+    source.status === 'done'
+      ? 'border-success/30 bg-success/10 text-success'
+      : source.status === 'error'
+        ? 'border-danger/30 bg-danger/10 text-danger'
+        : source.status === 'searching'
+          ? 'border-primary/30 bg-primary/10 text-primary'
+          : 'border-line bg-panel text-muted'
+  return (
+    <span className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${className}`}>
+      {source.status === 'searching' ? <RefreshCw size={11} className="animate-spin" /> : null}
+      {source.status}
+    </span>
+  )
 }
 
 const remotePreferenceOptions: Array<{ value: RemotePreference; label: string; detail: string }> = [
@@ -3250,7 +3571,6 @@ const discoverySortOptions: { value: JobFilters['sort']; label: string }[] = [
 ]
 
 function JobDiscoveryPage() {
-  const view = useWorkspaceView()
   const scoredJobs = useScoredJobs()
   const filters = useJobmatchStore((state) => state.filters)
   const selectedJobId = useJobmatchStore((state) => state.selectedJobId)
@@ -3266,14 +3586,14 @@ function JobDiscoveryPage() {
   const filteredJobs = useMemo(() => filterAndSortJobs(scoredJobs, filters), [scoredJobs, filters])
   const selected = filteredJobs.find(({ job }) => job.id === selectedJobId) ?? filteredJobs[0] ?? scoredJobs[0]
   const sources = Array.from(new Set(scoredJobs.map(({ job }) => job.sourcePlatform))).sort()
-  const externalSearchLinks = useMemo(() => buildExternalJobSearchLinks(view.profile), [view.profile])
   const activeFilterCount =
     filters.workModes.length +
     filters.jobTypes.length +
     filters.levels.length +
     filters.sources.length +
     (filters.scoreMin > 0 ? 1 : 0) +
-    (filters.salaryMin > 0 ? 1 : 0)
+    (filters.salaryMin > 0 ? 1 : 0) +
+    (filters.datePosted !== defaultFilters.datePosted ? 1 : 0)
 
   const handleApply = (scoredJob: ScoredJob) => {
     applyToJob(scoredJob.job.id)
@@ -3330,18 +3650,6 @@ function JobDiscoveryPage() {
               <RefreshCw size={16} className={liveSearch.status === 'loading' ? 'animate-spin' : ''} />
               {liveSearch.status === 'loading' ? 'Searching…' : 'Run live search'}
             </button>
-            {externalSearchLinks.map((link) => (
-              <a
-                key={link.label}
-                href={link.href}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex h-11 items-center gap-2 rounded-xl border border-line bg-panel px-4 text-sm font-semibold text-ink transition hover:border-cyan/60 hover:text-cyan"
-              >
-                <ExternalLink size={16} />
-                {link.label}
-              </a>
-            ))}
           </div>
         </div>
 
@@ -3442,6 +3750,12 @@ function JobDiscoveryPage() {
           />
         ) : null}
       </div>
+
+      <LiveSearchProgressModal
+        progress={liveSearch.progress}
+        onClose={liveSearch.closeProgress}
+        onViewJobs={liveSearch.viewResults}
+      />
     </div>
   )
 }
@@ -3507,7 +3821,7 @@ function CvHubPage() {
 
   const searchFromCv = () => {
     saveProfileSignal()
-    void liveSearch.runLiveSearch(true)
+    void liveSearch.runLiveSearch(false)
   }
 
   const handleDeleteCv = (cv: CvProfile) => {
@@ -3535,10 +3849,13 @@ function CvHubPage() {
         method: 'POST',
         body: formData,
       })
-      const payload = (await response.json()) as { cv?: ParsedCvPayload; error?: { message: string } }
+      const payload = await readApiJson<{ cv?: ParsedCvPayload; error?: { message: string } }>(
+        response,
+        'CV parsing failed.',
+      )
 
-      if (!response.ok || !payload.cv) {
-        throw new Error(payload.error?.message || 'CV parsing failed.')
+      if (!response.ok || !payload?.cv) {
+        throw new Error(payload?.error?.message || 'CV parsing failed.')
       }
 
       addParsedCv(payload.cv)
@@ -3890,6 +4207,12 @@ function CvHubPage() {
           <p className="mt-4 text-sm leading-6 text-muted">Upload a CV to extract your education and certificates.</p>
         )}
       </section>
+
+      <LiveSearchProgressModal
+        progress={liveSearch.progress}
+        onClose={liveSearch.closeProgress}
+        onViewJobs={liveSearch.viewResults}
+      />
     </div>
   )
 }
@@ -4638,7 +4961,7 @@ function AdminPage() {
         <HealthTile label="Database" value="Healthy" icon={<DatabaseZap size={18} />} />
         <HealthTile label="Auth" value="Supabase JWT + RLS" icon={<LockKeyhole size={18} />} />
         <HealthTile label="CV parser" value="On-device" icon={<FileText size={18} />} />
-        <HealthTile label="Live sources" value={`${liveJobSources.length || 22} configured`} icon={<Globe2 size={18} />} />
+        <HealthTile label="Live sources" value={`${liveJobSources.length || 25} configured`} icon={<Globe2 size={18} />} />
       </section>
     </div>
   )
